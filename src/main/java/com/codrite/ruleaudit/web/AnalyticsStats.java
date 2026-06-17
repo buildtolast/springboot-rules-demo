@@ -8,5 +8,8 @@ import java.util.List;
 public record AnalyticsStats(
     long totalMessages,
     long totalEvaluations,
-    List<RuleStats> ruleStats
+    List<RuleStats> ruleStats,
+    long avgParseTimeNano,
+    long avgEvalTimeNano,
+    long avgTotalTimeNano
 ) {}

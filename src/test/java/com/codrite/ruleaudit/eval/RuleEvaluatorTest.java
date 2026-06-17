@@ -106,4 +106,53 @@ class RuleEvaluatorTest {
         var result = evaluator.evaluate(root, rules);
         Assertions.assertThat(result.verdict()).isNotEqualTo(AuditType.MATCHED);
     }
+
+    @Test
+    void complexNestedArrayMatch() {
+        CompiledRule r1 = CompiledRule.compile("r1", "Price check", "['order']['items'].?[['price'] > 500].size() > 0");
+        Map<String, Object> root = Map.of(
+            "order", Map.of(
+                "items", List.of(
+                    Map.of("id", "it-1", "price", 600),
+                    Map.of("id", "it-2", "price", 400)
+                )
+            )
+        );
+        List<CompiledRule> rules = List.of(r1);
+
+        var result = evaluator.evaluate(root, rules);
+
+        Assertions.assertThat(result.verdict()).isEqualTo(AuditType.MATCHED);
+        Assertions.assertThat(result.ruleResults().get(0).type()).isEqualTo(AuditType.MATCHED);
+    }
+
+    @Test
+    void complexNestedArrayNoMatch() {
+        CompiledRule r1 = CompiledRule.compile("r1", "Price check", "['order']['items'].?[['price'] > 1000].size() > 0");
+        Map<String, Object> root = Map.of(
+            "order", Map.of(
+                "items", List.of(
+                    Map.of("id", "it-1", "price", 600),
+                    Map.of("id", "it-2", "price", 400)
+                )
+            )
+        );
+        List<CompiledRule> rules = List.of(r1);
+
+        var result = evaluator.evaluate(root, rules);
+
+        Assertions.assertThat(result.verdict()).isEqualTo(AuditType.UNMATCHED);
+    }
+
+    @Test
+    void testLatencyMeasurement() {
+        CompiledRule r1 = CompiledRule.compile("r1", "True rule", "true");
+        Map<String, Object> root = Map.of("field", "value");
+        List<CompiledRule> rules = List.of(r1);
+
+        // This test doesn't measure latency directly as it's done in RoutingProcessor,
+        // but we verify RuleEvaluator still works with the same input.
+        var result = evaluator.evaluate(root, rules);
+        Assertions.assertThat(result.verdict()).isEqualTo(AuditType.MATCHED);
+    }
 }

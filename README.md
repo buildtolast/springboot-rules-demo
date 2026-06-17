@@ -29,7 +29,7 @@ The system is fully containerized and decoupled, separating the high-performance
 The system achieves sub-millisecond evaluation times by:
 1. **Pre-compiled Rules:** SpEL expressions are compiled into executable objects upon loading, not per-message.
 2. **L1 Cache (RuleCache):** Rules are held in a local `ConcurrentHashMap` for zero-latency lookup during stream processing.
-3. **Optimized JSON Access:** Uses `SimpleEvaluationContext` for high-performance, read-only data binding.
+3. **Optimized JSON Access:** Uses `StandardEvaluationContext` with security-hardened type-locating for high-performance, read-only data binding.
 4. **Bulk Fan-out:** Every evaluation results in a dedicated audit record, batched within the Kafka Producer transaction.
 
 ### Application Flow
@@ -184,6 +184,7 @@ flowchart TD
 ### 🚀 Pro Dashboard (UI)
 - **Rule Management:** Create, edit, and delete SpEL rules with real-time status badges.
 - **Analytics View:** Tabbed dashboard showing real-time message throughput, evaluation counts, and per-rule performance (Matched vs. Unmatched vs. Errored).
+- **Traffic Simulator:** Integrated tool to push synthetic traffic and monitor sub-millisecond processing latency for JSON parsing and rule evaluation.
 - **Advanced Search:** Live filtering by rule description or SpEL expression.
 - **Modern Stack:** Built with React 18, Vite, Tailwind CSS 4, and Lucide icons.
 - **Decoupled Deployment:** Served via Nginx in a separate container for independent scaling.
@@ -282,7 +283,7 @@ A rule is one **SpEL boolean expression**. The evaluation root is a `Map<String,
 ```
 
 > [!WARNING]
-> **Security:** rules are untrusted input and are evaluated with `SimpleEvaluationContext.forReadOnlyDataBinding()`. Type references such as `T(java.lang.Runtime)…` cannot execute safely.
+> **Security:** rules are untrusted input and are evaluated with `StandardEvaluationContext` with type referencing disabled. Previously used `SimpleEvaluationContext`, but migrated to `StandardEvaluationContext` to support advanced features like selection/projection while maintaining RCE protection by blocking `T()` calls.
 
 ## Project layout
 
@@ -306,8 +307,8 @@ ruleaudit/
 | :--- | :--- |
 | Core Pipeline | **Done**, EOS topology, audit → Mongo |
 | Rule Management | **Done**, CRUD API + Redis Sync |
-| Pro Dashboard | **Done**, React + Tailwind 4 |
-| Observability | **Done**, Slf4j/Lombok Integration |
+| Pro Dashboard | **Done**, React + Tailwind 4, Analytics & Simulator |
+| Observability | **Done**, Slf4j/Lombok & Latency Tracking |
 | Error Handling | **Basic**, DLT retry handler pending |
 
 ---

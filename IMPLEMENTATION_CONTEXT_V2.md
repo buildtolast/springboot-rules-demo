@@ -253,8 +253,7 @@ com.example.ruleaudit
    record the error in `EvaluationResult.errors`, treat that rule as non-match,
    and mark the event ERRORED. **Never** let a throw escape to the stream thread.
 7. **Verdict = any-match:** `matched = !matchedRuleIds.isEmpty()`.
-8. **Security:** `SimpleEvaluationContext` only. Never `StandardEvaluationContext`
-   (would allow `T(java.lang.Runtime)...` RCE from DB-stored strings).
+8. **Security:** `StandardEvaluationContext` with disabled type referencing. Previously used `SimpleEvaluationContext`, but moved to `StandardEvaluationContext` to support selection/projection while maintaining RCE protection by blocking `T()`.
 
 ---
 

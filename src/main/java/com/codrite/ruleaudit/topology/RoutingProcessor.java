@@ -76,12 +76,19 @@ public class RoutingProcessor implements Processor<String, String, String, Routi
         log.debug("Processing record from topic={}, partition={}, offset={}, eventId={}", topic, partition, offset, eventId);
 
         try {
+            long startNano = System.nanoTime();
             // Step 1: Parse the incoming JSON string into a Map structure for SpEL evaluation
             Map<String, Object> root = jsonFactory.toRoot(value);
+            long parseEndNano = System.nanoTime();
             
             // Step 2: Evaluate all active rules against the data
             EvaluationResult r = evaluator.evaluate(root, cache.get());
+            long evalEndNano = System.nanoTime();
             
+            long parseTime = parseEndNano - startNano;
+            long evalTime = evalEndNano - parseEndNano;
+            long totalTime = evalEndNano - startNano;
+
             // If any rule matched, we keep the original payload for the target topic
             String routed = r.matched() ? value : null;
 
@@ -104,7 +111,10 @@ public class RoutingProcessor implements Processor<String, String, String, Routi
                     topic,
                     partition,
                     offset,
-                    Instant.now()
+                    Instant.now(),
+                    parseTime,
+                    evalTime,
+                    totalTime
                 );
                 return toJson(audit);
             }).collect(java.util.stream.Collectors.toList());
@@ -122,7 +132,10 @@ public class RoutingProcessor implements Processor<String, String, String, Routi
                     topic,
                     partition,
                     offset,
-                    Instant.now()
+                    Instant.now(),
+                    parseTime,
+                    evalTime,
+                    totalTime
                 );
                 auditJsons.add(toJson(audit));
             }
@@ -147,7 +160,8 @@ public class RoutingProcessor implements Processor<String, String, String, Routi
                 topic,
                 partition,
                 offset,
-                Instant.now()
+                Instant.now(),
+                0, 0, 0
             );
 
             context.forward(new Record<>(

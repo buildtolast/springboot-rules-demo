@@ -33,4 +33,7 @@ public record AuditRecord(
         String sourceTopic,
         int partition,
         long offset,
-        Instant timestamp) {}
+        Instant timestamp,
+        long parseTimeNano,
+        long evalTimeNano,
+        long totalTimeNano) {}

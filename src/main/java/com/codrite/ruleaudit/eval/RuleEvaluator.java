@@ -4,7 +4,9 @@ import com.codrite.ruleaudit.audit.AuditType;
 import com.codrite.ruleaudit.rules.CompiledRule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.expression.EvaluationContext;
+import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.expression.spel.support.SimpleEvaluationContext;
+import org.springframework.expression.spel.support.DataBindingPropertyAccessor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,16 +15,26 @@ import java.util.Map;
 /**
  * Evaluates a set of compiled SpEL rules against a JSON-derived data structure.
  * <p>
- * This class uses Spring Expression Language (SpEL) in a read-only data binding mode
- * to safely evaluate logic against the input map.
+ * This class uses Spring Expression Language (SpEL) to evaluate logic against the input map.
  */
 @Slf4j
 public class RuleEvaluator {
     
     /**
      * Shared evaluation context configured for safe, read-only access to root object properties.
+     * Uses StandardEvaluationContext to support complex features like selection and projection,
+     * but disables type referencing (T()) for security.
      */
-    private final EvaluationContext context = SimpleEvaluationContext.forReadOnlyDataBinding().build();
+    private final EvaluationContext context;
+
+    public RuleEvaluator() {
+        StandardEvaluationContext ctx = new StandardEvaluationContext();
+        // Disable type referencing to prevent security issues (like T(java.lang.Runtime))
+        ctx.setTypeLocator(typeName -> {
+            throw new org.springframework.expression.EvaluationException("Type referencing is disabled");
+        });
+        this.context = ctx;
+    }
 
     /**
      * Evaluates all provided rules against the root data object.

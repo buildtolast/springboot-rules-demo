@@ -15,13 +15,15 @@ import {
   Activity,
   Filter,
   TrendingUp,
-  Settings
+  Settings,
+  Zap
 } from 'lucide-react';
 import type { Rule } from './types';
 import AnalyticsDashboard from './AnalyticsDashboard';
+import SimulationPanel from './SimulationPanel';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'management' | 'analytics'>('management');
+  const [activeTab, setActiveTab] = useState<'management' | 'analytics' | 'simulator'>('management');
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -157,13 +159,20 @@ const App: React.FC = () => {
             <TrendingUp size={18} />
             Analytics Dashboard
           </button>
+          <button 
+            onClick={() => setActiveTab('simulator')}
+            className={`flex items-center gap-2 px-6 py-4 text-sm font-bold transition-all border-b-2 ${activeTab === 'simulator' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Zap size={18} />
+            Traffic Simulator
+          </button>
         </div>
 
         {activeTab === 'management' ? (
           <>
             {/* Stats Section */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-5">
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-5 transition-all hover:shadow-md">
                 <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner">
                   <Database size={28} />
                 </div>
@@ -172,7 +181,7 @@ const App: React.FC = () => {
                   <h3 className="text-3xl font-black text-gray-900">{stats.total}</h3>
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-5">
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-5 transition-all hover:shadow-md">
                 <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 shadow-inner">
                   <CheckCircle size={28} />
                 </div>
@@ -181,7 +190,7 @@ const App: React.FC = () => {
                   <h3 className="text-3xl font-black text-gray-900">{stats.active}</h3>
                 </div>
               </div>
-              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-5">
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-5 transition-all hover:shadow-md">
                 <div className="w-14 h-14 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-600 shadow-inner">
                   <XCircle size={28} />
                 </div>
@@ -350,8 +359,10 @@ const App: React.FC = () => {
               </div>
             </div>
           </>
-        ) : (
+        ) : activeTab === 'analytics' ? (
           <AnalyticsDashboard />
+        ) : (
+          <SimulationPanel />
         )}
       </div>
 

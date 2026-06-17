@@ -17,4 +17,7 @@ export interface AnalyticsStats {
   totalMessages: number;
   totalEvaluations: number;
   ruleStats: RuleStats[];
+  avgParseTimeNano: number;
+  avgEvalTimeNano: number;
+  avgTotalTimeNano: number;
 }

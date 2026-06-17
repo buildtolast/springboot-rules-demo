@@ -70,9 +70,30 @@ public class AnalyticsService {
         // Total evaluations
         Mono<Long> totalEvaluationsMono = mongoTemplate.count(new Query(rangeCriteria), AuditRecord.class);
 
-        return Mono.zip(totalMessagesMono, totalEvaluationsMono, ruleStatsMono)
-                .map(tuple -> new AnalyticsStats(tuple.getT1(), tuple.getT2(), tuple.getT3()));
+        // Latency stats
+        Aggregation latencyAgg = Aggregation.newAggregation(
+                Aggregation.match(rangeCriteria),
+                Aggregation.group()
+                        .avg("parseTimeNano").as("avgParseTime")
+                        .avg("evalTimeNano").as("avgEvalTime")
+                        .avg("totalTimeNano").as("avgTotalTime")
+        );
+
+        Mono<LatencyStats> latencyMono = mongoTemplate.aggregate(latencyAgg, AuditRecord.class, LatencyStats.class)
+                .next()
+                .defaultIfEmpty(new LatencyStats(0, 0, 0));
+
+        return Mono.zip(totalMessagesMono, totalEvaluationsMono, ruleStatsMono, latencyMono)
+                .map(tuple -> new AnalyticsStats(
+                        tuple.getT1(), 
+                        tuple.getT2(), 
+                        tuple.getT3(),
+                        (long) tuple.getT4().avgParseTime,
+                        (long) tuple.getT4().avgEvalTime,
+                        (long) tuple.getT4().avgTotalTime
+                ));
     }
 
     private record GlobalCount(long totalCount) {}
+    private record LatencyStats(double avgParseTime, double avgEvalTime, double avgTotalTime) {}
 }
