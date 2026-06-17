@@ -1,4 +1,4 @@
-# HANDOFF — next slice: Redis-cached, Mongo-persisted rules + CRUD UI
+# HANDOFF — next slice: Redis-cached, Mongo-persisted rules + CRUD UI (springboot-rules-demo)
 
 Pick this up in a fresh session. Context you need is here + `CLAUDE.md` +
 `IMPLEMENTATION_CONTEXT_V2.md` + `specs/`. Follow the local-LLM loop workflow in

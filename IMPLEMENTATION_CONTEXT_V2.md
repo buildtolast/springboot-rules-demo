@@ -1,4 +1,4 @@
-# IMPLEMENTATION CONTEXT v2 — Kafka Streams SpEL Rule-Matching & Async Mongo Audit
+# IMPLEMENTATION CONTEXT v2 — springboot-rules-demo
 
 > **Purpose of this file.** This is the working context/memory for building the
 > project. It captures every decision already made, what is still open, the

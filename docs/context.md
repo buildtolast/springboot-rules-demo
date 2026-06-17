@@ -1,6 +1,6 @@
 # Project Context & Memory
 
-Spring-Kafka-Stream-Rules — living context for humans and agents. 
+springboot-rules-demo — living context for humans and agents. 
 Source of truth for decisions: [IMPLEMENTATION_CONTEXT_V2.md](../IMPLEMENTATION_CONTEXT_V2.md).
 Build plan for the next slice: [HANDOFF.md](../HANDOFF.md).
 

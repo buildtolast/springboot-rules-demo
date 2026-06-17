@@ -1,5 +1,5 @@
 #!/bin/bash
-# Spring-Kafka-Stream-Rules End-to-End Runner
+# springboot-rules-demo End-to-End Runner
 # This script starts the entire stack and ensures code changes are reflected.
 
 set -e
@@ -56,7 +56,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 echo "----------------------------------------------------------"
-echo "🚀 Starting Spring-Kafka-Stream-Rules Stack"
+echo "🚀 Starting springboot-rules-demo Stack"
 echo "----------------------------------------------------------"
 echo "🖥️  UI Port:      $UI_PORT"
 echo "🔌 API Port:     $APP_PORT"

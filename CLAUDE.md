@@ -1,4 +1,4 @@
-# CLAUDE.md — Spring-Kafka-Stream-Rules
+# CLAUDE.md — springboot-rules-demo
 
 ## Authoritative implementation spec
 

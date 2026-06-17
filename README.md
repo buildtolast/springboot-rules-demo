@@ -1,4 +1,4 @@
-# Spring-Kafka-Stream-Rules
+# springboot-rules-demo
 
 A Kafka Streams pipeline that evaluates database-stored SpEL rules against JSON events, routes matches, and audits *every* event to MongoDB — exactly-once.
 
@@ -224,7 +224,7 @@ chmod +x run.sh
 | **Use External Mongo** | `MONGODB_URI=mongodb://your-mongo:27017/db ./run.sh` |
 | **Disable Demo Mode** | `SPRING_PROFILES_ACTIVE=prod ./run.sh` |
 
-Watch the `ruleaudit-app` logs for the `DEMO RESULTS` block. A clean run over 25 messages:
+Watch the `springboot-rules-demo-app` logs for the `DEMO RESULTS` block. A clean run over 25 messages:
 
 | MATCHED | UNMATCHED | ERRORED |
 | :--- | :--- | :--- |
@@ -234,11 +234,11 @@ Watch the `ruleaudit-app` logs for the `DEMO RESULTS` block. A clean run over 25
 
 ```bash
 # audit counts by type
-docker exec ruleaudit-mongo mongosh ruleaudit --quiet \
+docker exec springboot-rules-demo-mongo mongosh ruleaudit --quiet \
   --eval 'JSON.stringify(db.audits.aggregate([{$group:{_id:"$auditType",n:{$sum:1}}}]).toArray())'
 
 # topic offsets
-docker exec ruleaudit-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+docker exec springboot-rules-demo-kafka /opt/kafka/bin/kafka-get-offsets.sh \
   --bootstrap-server localhost:9092 --topic audit-events
 
 # tear down
