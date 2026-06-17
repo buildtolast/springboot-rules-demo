@@ -10,6 +10,7 @@ export APP_PORT=${APP_PORT:-8081}
 export KAFKA_PORT=${KAFKA_PORT:-9092}
 export MONGO_PORT=${MONGO_PORT:-27017}
 export REDIS_PORT=${REDIS_PORT:-6379}
+export KAFKA_CONTROLLER_PORT=${KAFKA_CONTROLLER_PORT:-9093}
 export SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-demo}
 
 # Connection overrides
@@ -21,6 +22,35 @@ BACKEND_URL_OVERRIDE=${BACKEND_URL:-}
 # Function to check if a port is open
 is_port_open() {
     nc -z localhost "$1" > /dev/null 2>&1
+}
+
+# Ports already claimed during this run. Tracked so two services can't both pick
+# the same incremented port before any container has actually bound it.
+ASSIGNED_PORTS=""
+
+# Whether a port is unavailable: occupied on the host, or already claimed above.
+port_taken() {
+    if is_port_open "$1"; then return 0; fi
+    case " $ASSIGNED_PORTS " in
+        *" $1 "*) return 0 ;;
+    esac
+    return 1
+}
+
+# Resolve the next free port at or above $1, auto-incrementing past anything that
+# is in use, and store it in the global FREE_PORT. $2 is a human-readable label.
+# Runs in the current shell (not a subshell) so ASSIGNED_PORTS persists across
+# calls and two services can't be handed the same port.
+FREE_PORT=""
+find_free_port() {
+    local port=$1
+    local label=$2
+    while port_taken "$port"; do
+        echo "⚠️  ${label} port $port is in use, trying $((port + 1))..."
+        port=$((port + 1))
+    done
+    ASSIGNED_PORTS="$ASSIGNED_PORTS $port"
+    FREE_PORT="$port"
 }
 
 # Parse command line arguments (before any teardown so --help exits cleanly)
@@ -39,6 +69,7 @@ while [[ "$#" -gt 0 ]]; do
             echo "  -h, --help     Show this help message"
             echo ""
             echo "Environment Variables (Overrides):"
+            echo "  (Any port below is auto-incremented to the next free port if already in use.)"
             echo "  UI_PORT        The port where the UI will be accessible (default: 8080)"
             echo "  APP_PORT       The port where the Backend API will be accessible (default: 8081)"
             echo "  KAFKA_PORT     The port for Kafka (default: 9092)"
@@ -85,35 +116,26 @@ fi
 echo "🛑 Stopping existing services..."
 $DOCKER_COMPOSE down --remove-orphans
 
-# Handle port overrides early
-if [ "$APP_PORT" != "8081" ]; then
-    # If the user changed the port but didn't provide an external URL,
-    # we check if that port is already occupied on the host.
-    if is_port_open "$APP_PORT"; then
-        export BACKEND_URL_OVERRIDE=${BACKEND_URL_OVERRIDE:-http://host.docker.internal:$APP_PORT}
-        echo "🔍 Detected existing Backend API on port $APP_PORT. UI will proxy to it."
-    else
-        echo "⚙️  Non-default APP_PORT ($APP_PORT) detected. Host will use this port to access the API."
-    fi
-fi
+# Resolve published host ports for every service we start. If the requested
+# (default or overridden) port is already in use, auto-increment to the next
+# free one so the user doesn't have to hunt for a free port manually.
+# UI always starts.
+find_free_port "$UI_PORT" "UI"; export UI_PORT="$FREE_PORT"
 
-# Check for existing services and set connection strings
-# Backend API (for UI proxy)
+# Backend API (for UI proxy) — reuse an external backend only when BACKEND_URL is
+# explicitly set; otherwise start our own app on an auto-resolved free port.
 if [ ! -z "$BACKEND_URL_OVERRIDE" ]; then
     export BACKEND_URL="$BACKEND_URL_OVERRIDE"
-    # If explicitly overridden via variable or non-default APP_PORT, we check if we should start internal app
-    # If it's host.docker.internal, we assume app is running on host
+    # If it points at host.docker.internal we assume the app already runs on the
+    # host and we should not start our own; any other URL is an in-network target.
     if [[ "$BACKEND_URL" == *"host.docker.internal"* ]]; then
         START_APP=false
     else
         START_APP=true
     fi
     echo "🌐 Using Backend API: $BACKEND_URL"
-elif is_port_open "$APP_PORT"; then
-    echo "🔍 Detected existing Backend API on port $APP_PORT. Using it."
-    export BACKEND_URL="http://host.docker.internal:$APP_PORT"
-    START_APP=false
 else
+    find_free_port "$APP_PORT" "API"; export APP_PORT="$FREE_PORT"
     export BACKEND_URL="http://app:$APP_PORT"
     START_APP=true
 fi
@@ -124,6 +146,8 @@ if [ ! -z "$KAFKA_BOOTSTRAP_OVERRIDE" ]; then
     START_KAFKA=false
     echo "🌐 Using external Kafka: $KAFKA_BOOTSTRAP"
 else
+    find_free_port "$KAFKA_PORT" "Kafka"; export KAFKA_PORT="$FREE_PORT"
+    find_free_port "$KAFKA_CONTROLLER_PORT" "Kafka controller"; export KAFKA_CONTROLLER_PORT="$FREE_PORT"
     export KAFKA_BOOTSTRAP="kafka:$KAFKA_PORT"
     START_KAFKA=true
 fi
@@ -134,6 +158,7 @@ if [ ! -z "$MONGODB_URI_OVERRIDE" ]; then
     START_MONGO=false
     echo "🌐 Using external MongoDB: $MONGODB_URI"
 else
+    find_free_port "$MONGO_PORT" "MongoDB"; export MONGO_PORT="$FREE_PORT"
     export MONGODB_URI="mongodb://mongo:$MONGO_PORT/ruleaudit"
     START_MONGO=true
 fi
@@ -144,6 +169,7 @@ if [ ! -z "$REDIS_HOST_OVERRIDE" ]; then
     START_REDIS=false
     echo "🌐 Using external Redis: $REDIS_HOST"
 else
+    find_free_port "$REDIS_PORT" "Redis"; export REDIS_PORT="$FREE_PORT"
     export REDIS_HOST="redis"
     START_REDIS=true
 fi
