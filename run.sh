@@ -18,13 +18,46 @@ export SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-demo}
 KAFKA_BOOTSTRAP_OVERRIDE=${KAFKA_BOOTSTRAP:-}
 MONGODB_URI_OVERRIDE=${MONGODB_URI:-}
 REDIS_HOST_OVERRIDE=${REDIS_HOST:-}
+BACKEND_URL_OVERRIDE=${BACKEND_URL:-}
 
 # Function to check if a port is open
 is_port_open() {
     nc -z localhost "$1" > /dev/null 2>&1
 }
 
+# Handle port overrides early
+if [ "$APP_PORT" != "8081" ]; then
+    # If the user changed the port but didn't provide an external URL,
+    # we check if that port is already occupied on the host.
+    if is_port_open "$APP_PORT"; then
+        export BACKEND_URL_OVERRIDE=${BACKEND_URL_OVERRIDE:-http://host.docker.internal:$APP_PORT}
+        echo "🔍 Detected existing Backend API on port $APP_PORT. UI will proxy to it."
+    else
+        echo "⚙️  Non-default APP_PORT ($APP_PORT) detected. Host will use this port to access the API."
+    fi
+fi
+
 # Check for existing services and set connection strings
+# Backend API (for UI proxy)
+if [ ! -z "$BACKEND_URL_OVERRIDE" ]; then
+    export BACKEND_URL="$BACKEND_URL_OVERRIDE"
+    # If explicitly overridden via variable or non-default APP_PORT, we check if we should start internal app
+    # If it's host.docker.internal, we assume app is running on host
+    if [[ "$BACKEND_URL" == *"host.docker.internal"* ]]; then
+        START_APP=false
+    else
+        START_APP=true
+    fi
+    echo "🌐 Using Backend API: $BACKEND_URL"
+elif is_port_open "$APP_PORT"; then
+    echo "🔍 Detected existing Backend API on port $APP_PORT. Using it."
+    export BACKEND_URL="http://host.docker.internal:$APP_PORT"
+    START_APP=false
+else
+    export BACKEND_URL="http://app:$CONTAINER_APP_PORT"
+    START_APP=true
+fi
+
 # Kafka
 if [ ! -z "$KAFKA_BOOTSTRAP_OVERRIDE" ]; then
     export KAFKA_BOOTSTRAP="$KAFKA_BOOTSTRAP_OVERRIDE"
@@ -108,6 +141,7 @@ while [[ "$#" -gt 0 ]]; do
             echo "  KAFKA_BOOTSTRAP  External Kafka broker (e.g., localhost:9092)"
             echo "  MONGODB_URI      External MongoDB URI (e.g., mongodb://localhost:27017/db)"
             echo "  REDIS_HOST       External Redis host (e.g., localhost)"
+            echo "  BACKEND_URL      External Backend API URL (e.g., http://localhost:8081)"
             echo ""
             echo "Example:"
             echo "  UI_PORT=9000 ./run.sh"
@@ -124,6 +158,7 @@ echo "🚀 Starting springboot-rules-demo Stack"
 echo "----------------------------------------------------------"
 echo "🖥️  UI Port:      $UI_PORT (Container: $CONTAINER_UI_PORT)"
 echo "🔌 API Port:     $APP_PORT (Container: $CONTAINER_APP_PORT)"
+echo "🔌 API:        $BACKEND_URL"
 echo "⚙️  Profiles:     $SPRING_PROFILES_ACTIVE"
 echo "📦 Kafka:        $KAFKA_BOOTSTRAP"
 echo "🍃 Mongo:        $MONGODB_URI"
@@ -156,7 +191,8 @@ $DOCKER_COMPOSE down --remove-orphans
 
 # Rebuild and run
 # We only start services that are not already running locally or overridden
-SERVICES_TO_START="app ui"
+SERVICES_TO_START="ui"
+if [ "$START_APP" = true ]; then SERVICES_TO_START="$SERVICES_TO_START app"; fi
 if [ "$START_KAFKA" = true ]; then SERVICES_TO_START="$SERVICES_TO_START kafka"; fi
 if [ "$START_MONGO" = true ]; then SERVICES_TO_START="$SERVICES_TO_START mongo"; fi
 if [ "$START_REDIS" = true ]; then SERVICES_TO_START="$SERVICES_TO_START redis"; fi
@@ -171,10 +207,37 @@ else
 fi
 
 echo "----------------------------------------------------------"
+echo "⏳ Waiting for services to initialize..."
+MAX_ATTEMPTS=30
+ATTEMPT=1
+while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+    if curl -s "http://localhost:$UI_PORT/api/health/status" | grep -q "HEALTHY" > /dev/null 2>&1; then
+        echo "✅ System is healthy and ready!"
+        break
+    fi
+    echo "   (Attempt $ATTEMPT/$MAX_ATTEMPTS) Still warming up..."
+    sleep 2
+    ATTEMPT=$((ATTEMPT + 1))
+done
+
+if [ $ATTEMPT -gt $MAX_ATTEMPTS ]; then
+    echo "⚠️  System is taking longer than expected to warm up."
+    echo "   Check logs with: $DOCKER_COMPOSE logs -f"
+fi
+
+echo "----------------------------------------------------------"
 echo "✅ Stack is running in the background."
-echo "📝 To view logs, run: $DOCKER_COMPOSE logs -f"
+if [ "$START_APP" = true ]; then
+    echo "📝 To view logs, run: $DOCKER_COMPOSE logs -f"
+else
+    echo "📝 To view UI logs, run: $DOCKER_COMPOSE logs -f ui"
+fi
 echo "🌐 UI is available at:  http://localhost:$UI_PORT"
-echo "🔌 API is available at: http://localhost:$APP_PORT"
+if [ "$START_APP" = true ]; then
+    echo "🔌 API is available at: http://localhost:$APP_PORT"
+else
+    echo "🔌 External API is at: $BACKEND_URL"
+fi
 echo "----------------------------------------------------------"
 
 if [ "$FOLLOW_LOGS" = true ]; then

@@ -26,6 +26,30 @@ import { ReportsTab } from './ReportsTab';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'management' | 'analytics' | 'simulator' | 'reports'>('management');
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [systemHealth, setSystemHealth] = useState<any>(null);
+
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const response = await fetch('/api/health/status');
+        if (response.ok) {
+          const data = await response.json();
+          setSystemHealth(data);
+          if (data.status === 'HEALTHY') {
+            setIsInitializing(false);
+          }
+        }
+      } catch (error) {
+        console.error('Health check failed', error);
+      }
+    };
+
+    const interval = setInterval(checkHealth, 2000);
+    checkHealth();
+
+    return () => clearInterval(interval);
+  }, []);
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +135,47 @@ const App: React.FC = () => {
                          filterStatus === 'active' ? rule.active : !rule.active;
     return matchesSearch && matchesFilter;
   });
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 font-['Plus_Jakarta_Sans']">
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-gray-100 p-10 text-center">
+          <div className="flex justify-center mb-8">
+            <div className="w-20 h-20 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 animate-pulse">
+              <Activity size={48} />
+            </div>
+          </div>
+          <h2 className="text-2xl font-black text-gray-900 mb-4">Warming Up System</h2>
+          <p className="text-gray-500 mb-8 leading-relaxed">
+            Please wait while we initialize the Rules Engine, Kafka Streams, and database connections.
+          </p>
+          
+          <div className="space-y-4 mb-8">
+            {systemHealth?.components && Object.entries(systemHealth.components).map(([name, state]: [string, any]) => (
+              <div key={name} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                <span className="text-sm font-bold text-gray-700 capitalize">
+                  {name.replace(/([A-Z])/g, ' $1').trim()}
+                </span>
+                <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-tighter ${
+                  state === 'RUNNING' || state === 'CONNECTED' || state === 'HEALTHY'
+                    ? 'bg-green-100 text-green-700' 
+                    : 'bg-amber-100 text-amber-700 animate-pulse'
+                }`}>
+                  {state}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-center gap-2 text-indigo-600 font-bold">
+            <div className="w-2 h-2 bg-indigo-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-2 h-2 bg-indigo-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-2 h-2 bg-indigo-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 p-4 md:p-8">

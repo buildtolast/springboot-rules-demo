@@ -281,7 +281,8 @@ npm run dev            # Start Vite dev server with HMR
 | Env var | Default | Purpose |
 | :--- | :--- | :--- |
 | `UI_PORT` | `8080` | Host port for the React Dashboard |
-| `APP_PORT` | `8081` | Host port for the Backend API |
+| `APP_PORT` | `8081` | Host port for the Backend API. Auto-proxied if non-default and port is open on host. |
+| `BACKEND_URL` | | Explicit URL for the UI to proxy to (e.g., `http://localhost:8081`). |
 | `CONTAINER_UI_PORT` | `80` | Internal container port for UI |
 | `CONTAINER_APP_PORT` | `8080` | Internal container port for API |
 | `KAFKA_PORT` | `9092` | Host port for Kafka |
