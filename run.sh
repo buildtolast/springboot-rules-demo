@@ -28,6 +28,9 @@ if [ ! -z "$KAFKA_BOOTSTRAP_OVERRIDE" ]; then
     export KAFKA_BOOTSTRAP="$KAFKA_BOOTSTRAP_OVERRIDE"
     START_KAFKA=false
     echo "🌐 Using external Kafka: $KAFKA_BOOTSTRAP"
+elif [ "$KAFKA_PORT" != "9092" ]; then
+    export KAFKA_BOOTSTRAP="kafka:9092"
+    START_KAFKA=true
 elif is_port_open "$KAFKA_PORT"; then
     echo "🔍 Detected existing Kafka on port $KAFKA_PORT. Using it."
     export KAFKA_BOOTSTRAP="host.docker.internal:$KAFKA_PORT"
@@ -42,6 +45,9 @@ if [ ! -z "$MONGODB_URI_OVERRIDE" ]; then
     export MONGODB_URI="$MONGODB_URI_OVERRIDE"
     START_MONGO=false
     echo "🌐 Using external MongoDB: $MONGODB_URI"
+elif [ "$MONGO_PORT" != "27017" ]; then
+    export MONGODB_URI="mongodb://mongo:27017/ruleaudit"
+    START_MONGO=true
 elif is_port_open "$MONGO_PORT"; then
     echo "🔍 Detected existing MongoDB on port $MONGO_PORT. Using it."
     export MONGODB_URI="mongodb://host.docker.internal:$MONGO_PORT/ruleaudit"
@@ -56,6 +62,9 @@ if [ ! -z "$REDIS_HOST_OVERRIDE" ]; then
     export REDIS_HOST="$REDIS_HOST_OVERRIDE"
     START_REDIS=false
     echo "🌐 Using external Redis: $REDIS_HOST"
+elif [ "$REDIS_PORT" != "6379" ]; then
+    export REDIS_HOST="redis"
+    START_REDIS=true
 elif is_port_open "$REDIS_PORT"; then
     echo "🔍 Detected existing Redis on port $REDIS_PORT. Using it."
     export REDIS_HOST="host.docker.internal"
