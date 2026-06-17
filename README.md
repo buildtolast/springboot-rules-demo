@@ -6,7 +6,7 @@ A Kafka Streams pipeline that evaluates database-stored SpEL rules against JSON 
 
 ## What it does
 
-Consume JSON events from a **source** topic. For each event, evaluate a set of **SpEL boolean rules**. If **any** rule matches (any-match), a new event is generated for **each** matching rule and routed to a **target** topic. This new event includes a confirmation message, a combined type (original_ruleId), and the original payload. For **every rule** evaluated against an event, an **audit record** is produced to an internal **audit** topic *inside the same exactly-once transaction*. This provides a granular audit trail showing exactly why each rule matched or failed. A separate consumer drains the audit topic and writes records to **MongoDB** with an idempotent upsert (effectively-once).
+Consume JSON events from a **source** topic. For each event, evaluate a set of **SpEL boolean rules**. If **any** rule matches (any-match), a specialized **match-confirmation event** is generated for **each** matching rule and routed to a **target** topic. This new event includes a confirmation message, a combined type (`originalType_ruleId`), and the original payload. For **every rule** evaluated against an event, an **audit record** (linking to its generated event if matched) is produced to an internal **audit** topic *inside the same exactly-once transaction*. This provides a granular audit trail showing exactly why each rule matched or failed. A separate consumer drains the audit topic and writes records to **MongoDB** with an idempotent upsert (effectively-once).
 
 > [!NOTE]
 > Kafka EOS does not span the Mongo write (no XA is possible across Kafka + Mongo). The audit topic + deterministic `auditId` + idempotent upsert give **effectively-once** persistence instead.
@@ -103,8 +103,12 @@ flowchart LR
     *   The event is evaluated against all active rules stored in the local `RuleCache`.
     *   Evaluation happens in-memory using pre-compiled SpEL expressions for sub-millisecond latency.
 3.  **Transactional Routing & Fan-out:**
-    *   If **any** rule matches, the original event is sent to the `target-events` topic.
-    *   For **every** rule evaluated, a granular `AuditRecord` (containing result and reason) is sent to the `audit-events` topic.
+    *   If **any** rule matches, a specialized **match-confirmation event** is generated for **each** matching rule and sent to the `target-events` topic.
+    *   The generated event contains:
+        *   `message`: Confirmation of match.
+        *   `type`: Combined string `originalType_ruleId` (e.g., `transaction_amount-over-1000`).
+        *   `original_event`: The full original payload nested inside.
+    *   For **every** rule evaluated, a granular `AuditRecord` (containing result, reason, and the generated event if matched) is sent to the `audit-events` topic.
     *   *Crucial:* Both the target route and the audit fan-out happen within the **same Kafka Transaction**. If one fails, nothing is committed.
 4.  **Reactive Persistence:**
     *   The `AuditConsumer` subscribes to the `audit-events` topic.

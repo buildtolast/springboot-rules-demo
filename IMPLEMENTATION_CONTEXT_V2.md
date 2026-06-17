@@ -31,7 +31,7 @@
 
 Consume JSON events from a **source** Kafka topic. For each event, evaluate a set
 of **database-stored SpEL boolean rules** against the event. If **any** rule
-matches (any-match), a new event is generated for **each** matching rule (containing a confirmation message and a combined type `original_ruleId`) and routed to a **target** topic. **Every** event —
+matches (any-match), a specialized **match-confirmation event** is generated for **each** matching rule (containing a confirmation message and a combined type `originalType_ruleId`) and routed to a **target** topic. **Every** rule evaluation —
 matched or not — produces an audit record to an internal **audit** topic, inside
 the same exactly-once Kafka transaction as the routing. A **separate** consumer
 drains the audit topic and writes audit records to **MongoDB** (idempotent
