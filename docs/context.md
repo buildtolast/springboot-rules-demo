@@ -13,7 +13,7 @@ Consume JSON events from a **source** Kafka topic. For each event, evaluate a se
 ## 2. Current build state
 
 > [!IMPORTANT]
-> **Runs end-to-end in Docker.** `docker compose up --build` (profile `demo`) produces 25 messages → **13 MATCHED** / 6 UNMATCHED / **6 ERRORED**, 25 audit docs in Mongo. EOS confirmed via transaction commit markers on the target/audit topics.
+> **Runs end-to-end in Docker.** `./run.sh` (profile `demo`) starts the stack in the background, produces 25 messages → **13 MATCHED** / 6 UNMATCHED / **6 ERRORED**, 25 audit docs in Mongo. EOS confirmed via transaction commit markers on the target/audit topics.
 
 | Component | Status | Notes |
 | :--- | :--- | :--- |

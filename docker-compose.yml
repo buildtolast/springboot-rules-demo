@@ -54,13 +54,13 @@ services:
       KAFKA_BOOTSTRAP: kafka:9092
       MONGODB_URI: mongodb://mongo:27017/ruleaudit
       REDIS_HOST: redis
-      SPRING_PROFILES_ACTIVE: demo
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-demo}
 
   ui:
     build:
       context: ./frontend
     container_name: ruleaudit-ui
     ports:
-      - "8080:80"
+      - "${UI_PORT:-8080}:80"
     depends_on:
       - app

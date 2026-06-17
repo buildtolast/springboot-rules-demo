@@ -41,11 +41,20 @@ producer ─▶ source-events
 
 ## Quick start — run the full pipeline
 
-The `demo` profile produces a batch of messages, lets the pipeline settle, then prints a result summary.
+The `run.sh` script automates the entire stack. It autodetects code changes, rebuilds the necessary Docker images, and starts everything in the background.
 
 ```bash
-docker compose up --build
+./run.sh
 ```
+
+### Advanced Usage
+
+| Action | Command |
+| :--- | :--- |
+| **View Logs** | `./run.sh --logs` (or `docker compose logs -f`) |
+| **Change UI Port** | `UI_PORT=9090 ./run.sh` |
+| **Force Rebuild** | `./run.sh --build` |
+| **Disable Demo Mode** | `SPRING_PROFILES_ACTIVE=prod ./run.sh` |
 
 Watch the `ruleaudit-app` logs for the `DEMO RESULTS` block. A clean run over 25 messages:
 
