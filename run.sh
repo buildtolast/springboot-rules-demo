@@ -25,6 +25,70 @@ is_port_open() {
     nc -z localhost "$1" > /dev/null 2>&1
 }
 
+# Parse command line arguments (before any teardown so --help exits cleanly)
+FORCE_REBUILD=false
+FOLLOW_LOGS=false
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        -b|--build) FORCE_REBUILD=true ;;
+        -l|--logs) FOLLOW_LOGS=true ;;
+        -h|--help)
+            echo "Usage: ./run.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -b, --build    Force a clean rebuild of Docker images (uses --no-cache)"
+            echo "  -l, --logs     Follow logs after starting the stack"
+            echo "  -h, --help     Show this help message"
+            echo ""
+            echo "Environment Variables (Overrides):"
+            echo "  UI_PORT        The port where the UI will be accessible (default: 8080)"
+            echo "  APP_PORT       The port where the Backend API will be accessible (default: 8081)"
+            echo "  KAFKA_PORT     The port for Kafka (default: 9092)"
+            echo "  MONGO_PORT     The port for MongoDB (default: 27017)"
+            echo "  REDIS_PORT     The port for Redis (default: 6379)"
+            echo "  CONTAINER_UI_PORT Internal container port for UI (default: 80)"
+            echo "  CONTAINER_APP_PORT Internal container port for API (default: 8080)"
+            echo "  SPRING_PROFILES_ACTIVE Spring profiles to run with (default: demo)"
+            echo ""
+            echo "External Connections (Overrides):"
+            echo "  KAFKA_BOOTSTRAP  External Kafka broker (e.g., localhost:9092)"
+            echo "  MONGODB_URI      External MongoDB URI (e.g., mongodb://localhost:27017/db)"
+            echo "  REDIS_HOST       External Redis host (e.g., localhost)"
+            echo "  BACKEND_URL      External Backend API URL (e.g., http://localhost:8081)"
+            echo ""
+            echo "Example:"
+            echo "  UI_PORT=9000 ./run.sh"
+            echo "  ./run.sh --build --logs"
+            exit 0
+            ;;
+        *) echo "Unknown parameter: $1"; exit 1 ;;
+    esac
+    shift
+done
+
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Error: Docker is not running. Please start Docker and try again."
+    exit 1
+fi
+
+# Detect if we should use 'docker compose' (V2) or 'docker-compose' (V1)
+if docker compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    DOCKER_COMPOSE="docker-compose"
+fi
+
+# Stop our own existing services FIRST, before probing for reusable services.
+# This is critical: the port probes below decide whether a service is already
+# running externally and should be reused. If we probed before tearing down,
+# our own containers from a previous run would still be holding their ports and
+# would be misdetected as "external" — then this 'down' would kill them, leaving
+# nothing running. Tearing down first means only genuinely external services
+# survive to be detected and reused.
+echo "🛑 Stopping existing services..."
+$DOCKER_COMPOSE down --remove-orphans
+
 # Handle port overrides early
 if [ "$APP_PORT" != "8081" ]; then
     # If the user changed the port but didn't provide an external URL,
@@ -112,47 +176,6 @@ else
     START_REDIS=true
 fi
 
-# Parse command line arguments
-FORCE_REBUILD=false
-FOLLOW_LOGS=false
-while [[ "$#" -gt 0 ]]; do
-    case $1 in
-        -b|--build) FORCE_REBUILD=true ;;
-        -l|--logs) FOLLOW_LOGS=true ;;
-        -h|--help)
-            echo "Usage: ./run.sh [OPTIONS]"
-            echo ""
-            echo "Options:"
-            echo "  -b, --build    Force a clean rebuild of Docker images (uses --no-cache)"
-            echo "  -l, --logs     Follow logs after starting the stack"
-            echo "  -h, --help     Show this help message"
-            echo ""
-            echo "Environment Variables (Overrides):"
-            echo "  UI_PORT        The port where the UI will be accessible (default: 8080)"
-            echo "  APP_PORT       The port where the Backend API will be accessible (default: 8081)"
-            echo "  KAFKA_PORT     The port for Kafka (default: 9092)"
-            echo "  MONGO_PORT     The port for MongoDB (default: 27017)"
-            echo "  REDIS_PORT     The port for Redis (default: 6379)"
-            echo "  CONTAINER_UI_PORT Internal container port for UI (default: 80)"
-            echo "  CONTAINER_APP_PORT Internal container port for API (default: 8080)"
-            echo "  SPRING_PROFILES_ACTIVE Spring profiles to run with (default: demo)"
-            echo ""
-            echo "External Connections (Overrides):"
-            echo "  KAFKA_BOOTSTRAP  External Kafka broker (e.g., localhost:9092)"
-            echo "  MONGODB_URI      External MongoDB URI (e.g., mongodb://localhost:27017/db)"
-            echo "  REDIS_HOST       External Redis host (e.g., localhost)"
-            echo "  BACKEND_URL      External Backend API URL (e.g., http://localhost:8081)"
-            echo ""
-            echo "Example:"
-            echo "  UI_PORT=9000 ./run.sh"
-            echo "  ./run.sh --build --logs"
-            exit 0
-            ;;
-        *) echo "Unknown parameter: $1"; exit 1 ;;
-    esac
-    shift
-done
-
 echo "----------------------------------------------------------"
 echo "🚀 Starting springboot-rules-demo Stack"
 echo "----------------------------------------------------------"
@@ -164,30 +187,6 @@ echo "📦 Kafka:        $KAFKA_BOOTSTRAP"
 echo "🍃 Mongo:        $MONGODB_URI"
 echo "🔴 Redis:        $REDIS_HOST"
 echo "----------------------------------------------------------"
-
-# If external services are provided, we don't necessarily want to fail if internal ones aren't healthy,
-# but 'docker compose up' will still try to start them.
-# The 'app' container will now use the provided KAFKA_BOOTSTRAP/MONGODB_URI if set.
-
-# Check if Docker is running
-if ! docker info > /dev/null 2>&1; then
-    echo "❌ Error: Docker is not running. Please start Docker and try again."
-    exit 1
-fi
-
-# Detect if we should use 'docker compose' (V2) or 'docker-compose' (V1)
-if docker compose version > /dev/null 2>&1; then
-    DOCKER_COMPOSE="docker compose"
-else
-    DOCKER_COMPOSE="docker-compose"
-fi
-
-# Stop existing services to ensure a clean start
-# We only stop what we might have started or what is in our compose file
-# However, to be safe and satisfy "restarting should be clean", we down the whole thing
-# but only if we are NOT using external services for everything.
-echo "🛑 Stopping existing services..."
-$DOCKER_COMPOSE down --remove-orphans
 
 # Rebuild and run
 # We only start services that are not already running locally or overridden
@@ -216,14 +215,14 @@ while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
         echo "✅ System is healthy and ready!"
         break
     fi
-    
+
     if [ "$RESPONSE" = "FAILED" ]; then
         STATE="OFFLINE"
     else
         # Extract Kafka state using grep/sed for portability
         STATE=$(echo "$RESPONSE" | grep -o '"kafkaStreams":"[^"]*"' | cut -d'"' -f4)
     fi
-    
+
     echo "   (Attempt $ATTEMPT/$MAX_ATTEMPTS) System status: $STATE"
     sleep 2
     ATTEMPT=$((ATTEMPT + 1))
