@@ -10,6 +10,8 @@ export APP_PORT=${APP_PORT:-8081}
 export KAFKA_PORT=${KAFKA_PORT:-9092}
 export MONGO_PORT=${MONGO_PORT:-27017}
 export REDIS_PORT=${REDIS_PORT:-6379}
+export CONTAINER_UI_PORT=${CONTAINER_UI_PORT:-80}
+export CONTAINER_APP_PORT=${CONTAINER_APP_PORT:-8080}
 export SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-demo}
 
 # Connection overrides
@@ -31,6 +33,7 @@ if [ ! -z "$KAFKA_BOOTSTRAP_OVERRIDE" ]; then
 elif [ "$KAFKA_PORT" != "9092" ]; then
     export KAFKA_BOOTSTRAP="kafka:9092"
     START_KAFKA=true
+    echo "⚠️  Non-default KAFKA_PORT ($KAFKA_PORT) detected. Using internal Kafka container."
 elif is_port_open "$KAFKA_PORT"; then
     echo "🔍 Detected existing Kafka on port $KAFKA_PORT. Using it."
     export KAFKA_BOOTSTRAP="host.docker.internal:$KAFKA_PORT"
@@ -48,6 +51,7 @@ if [ ! -z "$MONGODB_URI_OVERRIDE" ]; then
 elif [ "$MONGO_PORT" != "27017" ]; then
     export MONGODB_URI="mongodb://mongo:27017/ruleaudit"
     START_MONGO=true
+    echo "⚠️  Non-default MONGO_PORT ($MONGO_PORT) detected. Using internal MongoDB container."
 elif is_port_open "$MONGO_PORT"; then
     echo "🔍 Detected existing MongoDB on port $MONGO_PORT. Using it."
     export MONGODB_URI="mongodb://host.docker.internal:$MONGO_PORT/ruleaudit"
@@ -65,6 +69,7 @@ if [ ! -z "$REDIS_HOST_OVERRIDE" ]; then
 elif [ "$REDIS_PORT" != "6379" ]; then
     export REDIS_HOST="redis"
     START_REDIS=true
+    echo "⚠️  Non-default REDIS_PORT ($REDIS_PORT) detected. Using internal Redis container."
 elif is_port_open "$REDIS_PORT"; then
     echo "🔍 Detected existing Redis on port $REDIS_PORT. Using it."
     export REDIS_HOST="host.docker.internal"
@@ -95,6 +100,8 @@ while [[ "$#" -gt 0 ]]; do
             echo "  KAFKA_PORT     The port for Kafka (default: 9092)"
             echo "  MONGO_PORT     The port for MongoDB (default: 27017)"
             echo "  REDIS_PORT     The port for Redis (default: 6379)"
+            echo "  CONTAINER_UI_PORT Internal container port for UI (default: 80)"
+            echo "  CONTAINER_APP_PORT Internal container port for API (default: 8080)"
             echo "  SPRING_PROFILES_ACTIVE Spring profiles to run with (default: demo)"
             echo ""
             echo "External Connections (Overrides):"
@@ -115,8 +122,8 @@ done
 echo "----------------------------------------------------------"
 echo "🚀 Starting springboot-rules-demo Stack"
 echo "----------------------------------------------------------"
-echo "🖥️  UI Port:      $UI_PORT"
-echo "🔌 API Port:     $APP_PORT"
+echo "🖥️  UI Port:      $UI_PORT (Container: $CONTAINER_UI_PORT)"
+echo "🔌 API Port:     $APP_PORT (Container: $CONTAINER_APP_PORT)"
 echo "⚙️  Profiles:     $SPRING_PROFILES_ACTIVE"
 echo "📦 Kafka:        $KAFKA_BOOTSTRAP"
 echo "🍃 Mongo:        $MONGODB_URI"

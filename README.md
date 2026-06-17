@@ -280,9 +280,11 @@ npm run dev            # Start Vite dev server with HMR
 
 | Env var | Default | Purpose |
 | :--- | :--- | :--- |
-| `UI_PORT` | `8080` | Port for the React Dashboard |
-| `APP_PORT` | `8081` | Port for the Backend API |
-| `KAFKA_PORT` | `9092` | Port for Kafka |
+| `UI_PORT` | `8080` | Host port for the React Dashboard |
+| `APP_PORT` | `8081` | Host port for the Backend API |
+| `CONTAINER_UI_PORT` | `80` | Internal container port for UI |
+| `CONTAINER_APP_PORT` | `8080` | Internal container port for API |
+| `KAFKA_PORT` | `9092` | Host port for Kafka |
 | `MONGO_PORT` | `27017` | Port for MongoDB |
 | `REDIS_PORT` | `6379` | Port for Redis |
 | `KAFKA_BOOTSTRAP` | | External Kafka broker (e.g., `localhost:9092`) |
