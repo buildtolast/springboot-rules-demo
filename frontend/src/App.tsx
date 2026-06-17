@@ -16,14 +16,16 @@ import {
   Filter,
   TrendingUp,
   Settings,
-  Zap
+  Zap,
+  FileText
 } from 'lucide-react';
 import type { Rule } from './types';
 import AnalyticsDashboard from './AnalyticsDashboard';
 import SimulationPanel from './SimulationPanel';
+import { ReportsTab } from './ReportsTab';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'management' | 'analytics' | 'simulator'>('management');
+  const [activeTab, setActiveTab] = useState<'management' | 'analytics' | 'simulator' | 'reports'>('management');
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +167,13 @@ const App: React.FC = () => {
           >
             <Zap size={18} />
             Traffic Simulator
+          </button>
+          <button 
+            onClick={() => setActiveTab('reports')}
+            className={`flex items-center gap-2 px-6 py-4 text-sm font-bold transition-all border-b-2 ${activeTab === 'reports' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <FileText size={18} />
+            Compliance Reports
           </button>
         </div>
 
@@ -361,8 +370,10 @@ const App: React.FC = () => {
           </>
         ) : activeTab === 'analytics' ? (
           <AnalyticsDashboard />
-        ) : (
+        ) : activeTab === 'simulator' ? (
           <SimulationPanel />
+        ) : (
+          <ReportsTab />
         )}
       </div>
 

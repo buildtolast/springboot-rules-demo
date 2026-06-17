@@ -21,3 +21,19 @@ export interface AnalyticsStats {
   avgEvalTimeNano: number;
   avgTotalTimeNano: number;
 }
+
+export interface AuditRecord {
+  auditId: string;
+  ruleId: string;
+  auditType: 'MATCHED' | 'UNMATCHED' | 'ERRORED';
+  reason?: string;
+  sourceEvent: string;
+  routedEvent?: string;
+  sourceTopic: string;
+  partition: number;
+  offset: number;
+  timestamp: string;
+  parseTimeNano: number;
+  evalTimeNano: number;
+  totalTimeNano: number;
+}

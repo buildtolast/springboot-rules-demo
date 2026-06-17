@@ -12,6 +12,11 @@ export MONGO_PORT=${MONGO_PORT:-27017}
 export REDIS_PORT=${REDIS_PORT:-6379}
 export SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-demo}
 
+# Connection overrides (defaults to internal docker names if not set)
+export KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-}
+export MONGODB_URI=${MONGODB_URI:-}
+export REDIS_HOST=${REDIS_HOST:-}
+
 # Parse command line arguments
 FORCE_REBUILD=false
 FOLLOW_LOGS=false
@@ -35,6 +40,11 @@ while [[ "$#" -gt 0 ]]; do
             echo "  REDIS_PORT     The port for Redis (default: 6379)"
             echo "  SPRING_PROFILES_ACTIVE Spring profiles to run with (default: demo)"
             echo ""
+            echo "External Connections (Overrides):"
+            echo "  KAFKA_BOOTSTRAP  External Kafka broker (e.g., localhost:9092)"
+            echo "  MONGODB_URI      External MongoDB URI (e.g., mongodb://localhost:27017/db)"
+            echo "  REDIS_HOST       External Redis host (e.g., localhost)"
+            echo ""
             echo "Example:"
             echo "  UI_PORT=9000 ./run.sh"
             echo "  ./run.sh --build --logs"
@@ -54,7 +64,14 @@ echo "📦 Kafka Port:   $KAFKA_PORT"
 echo "🍃 Mongo Port:   $MONGO_PORT"
 echo "🔴 Redis Port:   $REDIS_PORT"
 echo "⚙️  Profiles:     $SPRING_PROFILES_ACTIVE"
+if [ ! -z "$KAFKA_BOOTSTRAP" ]; then echo "🌐 Ext Kafka:    $KAFKA_BOOTSTRAP"; fi
+if [ ! -z "$MONGODB_URI" ]; then     echo "🌐 Ext Mongo:    $MONGODB_URI"; fi
+if [ ! -z "$REDIS_HOST" ]; then      echo "🌐 Ext Redis:    $REDIS_HOST"; fi
 echo "----------------------------------------------------------"
+
+# If external services are provided, we don't necessarily want to fail if internal ones aren't healthy,
+# but 'docker compose up' will still try to start them.
+# The 'app' container will now use the provided KAFKA_BOOTSTRAP/MONGODB_URI if set.
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then

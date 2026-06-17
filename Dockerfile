@@ -2,6 +2,8 @@
 FROM gradle:8.10.2-jdk21 AS build
 WORKDIR /app
 COPY settings.gradle.kts build.gradle.kts ./
+# Pre-download dependencies to cache them and handle network blips early
+RUN gradle dependencies --no-daemon || true
 COPY src ./src
 RUN gradle bootJar --no-daemon -x test
 

@@ -185,6 +185,7 @@ flowchart TD
 - **Rule Management:** Create, edit, and delete SpEL rules with real-time status badges.
 - **Analytics View:** Tabbed dashboard showing real-time message throughput, evaluation counts, and per-rule performance (Matched vs. Unmatched vs. Errored).
 - **Traffic Simulator:** Integrated tool to push synthetic traffic and monitor sub-millisecond processing latency for JSON parsing and rule evaluation.
+- **Compliance Reports:** Dedicated tab for business users to view and export matched/unmatched records as CSV files with full metadata.
 - **Advanced Search:** Live filtering by rule description or SpEL expression.
 - **Modern Stack:** Built with React 18, Vite, Tailwind CSS 4, and Lucide icons.
 - **Decoupled Deployment:** Served via Nginx in a separate container for independent scaling.
@@ -219,6 +220,8 @@ chmod +x run.sh
 | **Change API Port** | `APP_PORT=8082 ./run.sh` |
 | **Change Kafka Port** | `KAFKA_PORT=9094 ./run.sh` |
 | **Force Rebuild** | `./run.sh --build` |
+| **Use External Kafka** | `KAFKA_BOOTSTRAP=your-broker:9092 ./run.sh` |
+| **Use External Mongo** | `MONGODB_URI=mongodb://your-mongo:27017/db ./run.sh` |
 | **Disable Demo Mode** | `SPRING_PROFILES_ACTIVE=prod ./run.sh` |
 
 Watch the `ruleaudit-app` logs for the `DEMO RESULTS` block. A clean run over 25 messages:
@@ -270,6 +273,9 @@ npm run dev            # Start Vite dev server with HMR
 | `KAFKA_PORT` | `9092` | Port for Kafka |
 | `MONGO_PORT` | `27017` | Port for MongoDB |
 | `REDIS_PORT` | `6379` | Port for Redis |
+| `KAFKA_BOOTSTRAP` | | External Kafka broker (e.g., `localhost:9092`) |
+| `MONGODB_URI` | | External MongoDB URI (e.g., `mongodb://localhost:27017/db`) |
+| `REDIS_HOST` | | External Redis host (e.g., `localhost`) |
 | `SPRING_PROFILES_ACTIVE` | `demo` | Set to `prod` to disable the auto-producer |
 
 ## Writing rules

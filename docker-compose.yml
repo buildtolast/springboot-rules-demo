@@ -60,9 +60,9 @@ services:
       redis:
         condition: service_healthy
     environment:
-      KAFKA_BOOTSTRAP: kafka:9092
-      MONGODB_URI: mongodb://mongo:27017/ruleaudit
-      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP: ${KAFKA_BOOTSTRAP:-kafka:9092}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/ruleaudit}
+      REDIS_HOST: ${REDIS_HOST:-redis}
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-demo}
 
   ui:
