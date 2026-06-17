@@ -45,7 +45,7 @@ public final class DemoMessages {
             }
 
             messages.add(String.format(
-                "{\"amount\":%d,\"region\":\"%s\",\"tier\":\"%s\",\"flagged\":%b,\"metadata\":{\"source\":\"%s\",\"priority\":%d,\"tax_rate\":%.2f},\"order\":{\"items\":%s,\"total_items\":%d},\"timestamp\":\"%s\"}",
+                "{\"type\":\"order_event\",\"amount\":%d,\"region\":\"%s\",\"tier\":\"%s\",\"flagged\":%b,\"metadata\":{\"source\":\"%s\",\"priority\":%d,\"tax_rate\":%.2f},\"order\":{\"items\":%s,\"total_items\":%d},\"timestamp\":\"%s\"}",
                 amount, region, tier, i % 3 == 0, source, priority, taxRate, itemsJson, (i % 3) + 1, timestamp
             ));
         }

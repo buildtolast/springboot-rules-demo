@@ -30,7 +30,7 @@ public class RuleMatchingPipelineIT {
 
     @Test
     void testMatchOnlyR1() {
-        String json = "{\"amount\":5000,\"region\":\"US\"}";
+        String json = "{\"type\":\"order\",\"amount\":5000,\"region\":\"US\"}";
         var root = factory.toRoot(json);
         var result = evaluator.evaluate(root, rules);
 
@@ -43,7 +43,7 @@ public class RuleMatchingPipelineIT {
 
     @Test
     void testMatchOnlyR2() {
-        String json = "{\"amount\":50,\"region\":\"EU\"}";
+        String json = "{\"type\":\"order\",\"amount\":50,\"region\":\"EU\"}";
         var root = factory.toRoot(json);
         var result = evaluator.evaluate(root, rules);
 

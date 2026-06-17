@@ -89,17 +89,50 @@ public class RoutingProcessor implements Processor<String, String, String, Routi
             long evalTime = evalEndNano - parseEndNano;
             long totalTime = evalEndNano - startNano;
 
-            // If any rule matched, we keep the original payload for the target topic
-            String routed = r.matched() ? value : null;
+            // Step 3: Generate new events for matched rules
+            String originalType = String.valueOf(root.getOrDefault("type", "unknown"));
+            List<String> routedValues = r.ruleResults().stream()
+                .filter(result -> result.type() == AuditType.MATCHED)
+                .map(result -> {
+                    Map<String, Object> newEvent = Map.of(
+                        "message", "Rule matched, sending this event which confirms that the event matched",
+                        "type", originalType + "_" + result.ruleId(),
+                        "original_event", root
+                    );
+                    try {
+                        return mapper.writeValueAsString(newEvent);
+                    } catch (Exception e) {
+                        log.error("Failed to serialize matched event", e);
+                        return null;
+                    }
+                })
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toList());
 
             if (r.matched()) {
-                log.info("Record {}: Match found and will be routed", eventId);
+                log.info("Record {}: {} match(es) found and will be routed", eventId, routedValues.size());
             } else {
                 log.debug("Record {} did not match any rules", eventId);
             }
 
-            // Step 3: Construct individual audit records for each rule evaluation
+            // Step 4: Construct individual audit records for each rule evaluation
             List<String> auditJsons = r.ruleResults().stream().map(result -> {
+                String routedEvent = null;
+                if (result.type() == AuditType.MATCHED) {
+                    // Find the event that was generated for this specific matching rule
+                    String matchSuffix = "_" + result.ruleId();
+                    routedEvent = routedValues.stream()
+                        .filter(rv -> {
+                            try {
+                                return mapper.readTree(rv).path("type").asText().endsWith(matchSuffix);
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        })
+                        .findFirst()
+                        .orElse(null);
+                }
+
                 AuditRecord audit = new AuditRecord(
                     AuditKey.of(topic, partition, offset, result.ruleId()),
                     result.ruleId(),
@@ -107,7 +140,7 @@ public class RoutingProcessor implements Processor<String, String, String, Routi
                     result.type(),
                     result.reason(),
                     value,
-                    result.type() == AuditType.MATCHED ? value : null,
+                    routedEvent,
                     topic,
                     partition,
                     offset,
@@ -143,7 +176,7 @@ public class RoutingProcessor implements Processor<String, String, String, Routi
             // Step 4: Forward the consolidated result downstream in the DSL topology
             context.forward(new Record<>(
                 eventId,
-                new RoutingResult(r.matched(), routed, auditJsons),
+                new RoutingResult(r.matched(), routedValues, auditJsons),
                 ts
             ));
         } catch (JsonParseException e) {
@@ -166,7 +199,7 @@ public class RoutingProcessor implements Processor<String, String, String, Routi
 
             context.forward(new Record<>(
                 eventId,
-                new RoutingResult(false, null, List.of(toJson(audit))),
+                new RoutingResult(false, List.of(), List.of(toJson(audit))),
                 ts
             ));
         }

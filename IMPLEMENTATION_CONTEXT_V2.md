@@ -31,7 +31,7 @@
 
 Consume JSON events from a **source** Kafka topic. For each event, evaluate a set
 of **database-stored SpEL boolean rules** against the event. If **any** rule
-matches (any-match), route the event to a **target** topic. **Every** event —
+matches (any-match), a new event is generated for **each** matching rule (containing a confirmation message and a combined type `original_ruleId`) and routed to a **target** topic. **Every** event —
 matched or not — produces an audit record to an internal **audit** topic, inside
 the same exactly-once Kafka transaction as the routing. A **separate** consumer
 drains the audit topic and writes audit records to **MongoDB** (idempotent
@@ -87,14 +87,14 @@ The system is fully containerized and decoupled, separating the high-performance
 ┌─────▼─────┐           ┌─────────────▼─────────────┐             ┌───────▼───────┐
 │  Source   │           │ 1. Read JSON Event        │             │ 4. Reactive   │
 │  Events   ├──────────▶│ 2. Evaluate SpEL Rules    │             │    Subscribe  │
-└───────────┘           │ 3. Fan-out Results        │             └───────┬───────┘
+└───────────┘           │ 3. Generate New Events    │             └───────┬───────┘
                         └──────┬──────────────┬─────┘                     │
                                │              │                   ┌───────▼───────┐
                         IF MATCHED      ALWAYS (Audit)            │ 5. Idempotent │
                                │              │                   │    Upsert     │
                         ┌──────▼──────┐┌──────▼──────┐            └───────┬───────┘
-                        │   Target    ││    Audit    │◀── (Topic) ────────┘
-                        │   Events    ││    Events   │            ┌───────▼───────┐
+                        │  New Events ││    Audit    │◀── (Topic) ────────┘
+                        │   (Target)  ││    Events   │            ┌───────▼───────┐
                         └─────────────┘└─────────────┘            │ 6. Kafka Ack  │
                                                                   └───────────────┘
 ```

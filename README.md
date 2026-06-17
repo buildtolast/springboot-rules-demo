@@ -6,7 +6,7 @@ A Kafka Streams pipeline that evaluates database-stored SpEL rules against JSON 
 
 ## What it does
 
-Consume JSON events from a **source** topic. For each event, evaluate a set of **SpEL boolean rules**. If **any** rule matches (any-match), the event is routed to a **target** topic. For **every rule** evaluated against an event, an **audit record** is produced to an internal **audit** topic *inside the same exactly-once transaction*. This provides a granular audit trail showing exactly why each rule matched or failed. A separate consumer drains the audit topic and writes records to **MongoDB** with an idempotent upsert (effectively-once).
+Consume JSON events from a **source** topic. For each event, evaluate a set of **SpEL boolean rules**. If **any** rule matches (any-match), a new event is generated for **each** matching rule and routed to a **target** topic. This new event includes a confirmation message, a combined type (original_ruleId), and the original payload. For **every rule** evaluated against an event, an **audit record** is produced to an internal **audit** topic *inside the same exactly-once transaction*. This provides a granular audit trail showing exactly why each rule matched or failed. A separate consumer drains the audit topic and writes records to **MongoDB** with an idempotent upsert (effectively-once).
 
 > [!NOTE]
 > Kafka EOS does not span the Mongo write (no XA is possible across Kafka + Mongo). The audit topic + deterministic `auditId` + idempotent upsert give **effectively-once** persistence instead.
@@ -45,14 +45,14 @@ The following diagram illustrates the lifecycle of an event as it moves through 
 ┌─────▼─────┐           ┌─────────────▼─────────────┐             ┌───────▼───────┐
 │  Source   │           │ 1. Read JSON Event        │             │ 4. Reactive   │
 │  Events   ├──────────▶│ 2. Evaluate SpEL Rules    │             │    Subscribe  │
-└───────────┘           │ 3. Fan-out Results        │             └───────┬───────┘
+└───────────┘           │ 3. Generate New Events    │             └───────┬───────┘
                         └──────┬──────────────┬─────┘                     │
                                │              │                   ┌───────▼───────┐
                         IF MATCHED      ALWAYS (Audit)            │ 5. Idempotent │
                                │              │                   │    Upsert     │
                         ┌──────▼──────┐┌──────▼──────┐            └───────┬───────┘
-                        │   Target    ││    Audit    │◀── (Topic) ────────┘
-                        │   Events    ││    Events   │            ┌───────▼───────┐
+                        │  New Events ││    Audit    │◀── (Topic) ────────┘
+                        │   (Target)  ││    Events   │            ┌───────▼───────┐
                         └─────────────┘└─────────────┘            │ 6. Kafka Ack  │
                                                                   └───────────────┘
 ```

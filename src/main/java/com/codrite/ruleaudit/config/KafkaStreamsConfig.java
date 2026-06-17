@@ -82,9 +82,9 @@ public class KafkaStreamsConfig {
         evaluated.flatMapValues(RoutingResult::auditJsons, Named.as("audit-values"))
                  .to(auditTopic, asString);
 
-        // Route 2: Only records that matched at least one active rule go to the Target topic
+        // Route 2: For each matched rule, the generated event is sent to the Target topic
         evaluated.filter((k, v) -> v.matched(), Named.as("matched-filter"))
-                 .mapValues(RoutingResult::routedValue, Named.as("routed-value"))
+                 .flatMapValues(RoutingResult::routedValues, Named.as("routed-values"))
                  .to(targetTopic, asString);
 
         return source;
