@@ -210,6 +210,14 @@ flowchart TD
 
 The `run.sh` script automates the entire stack. It autodetects code changes, rebuilds the necessary Docker images, and starts everything in the background.
 
+### Smart Service Detection
+
+The `run.sh` script automatically detects if Kafka, MongoDB, or Redis are already running on your host machine (using default ports). 
+- If detected, the application connects to your **host services** instead of starting Docker containers for them.
+- If not detected, it spins up the required services in **Docker containers**.
+
+This allows for a seamless transition between a fully self-contained Docker environment and one where you might be running some infrastructure locally.
+
 ```bash
 chmod +x run.sh
 ./run.sh

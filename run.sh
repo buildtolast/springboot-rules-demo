@@ -12,10 +12,58 @@ export MONGO_PORT=${MONGO_PORT:-27017}
 export REDIS_PORT=${REDIS_PORT:-6379}
 export SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-demo}
 
-# Connection overrides (defaults to internal docker names if not set)
-export KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-}
-export MONGODB_URI=${MONGODB_URI:-}
-export REDIS_HOST=${REDIS_HOST:-}
+# Connection overrides
+KAFKA_BOOTSTRAP_OVERRIDE=${KAFKA_BOOTSTRAP:-}
+MONGODB_URI_OVERRIDE=${MONGODB_URI:-}
+REDIS_HOST_OVERRIDE=${REDIS_HOST:-}
+
+# Function to check if a port is open
+is_port_open() {
+    nc -z localhost "$1" > /dev/null 2>&1
+}
+
+# Check for existing services and set connection strings
+# Kafka
+if [ ! -z "$KAFKA_BOOTSTRAP_OVERRIDE" ]; then
+    export KAFKA_BOOTSTRAP="$KAFKA_BOOTSTRAP_OVERRIDE"
+    START_KAFKA=false
+    echo "🌐 Using external Kafka: $KAFKA_BOOTSTRAP"
+elif is_port_open "$KAFKA_PORT"; then
+    echo "🔍 Detected existing Kafka on port $KAFKA_PORT. Using it."
+    export KAFKA_BOOTSTRAP="host.docker.internal:$KAFKA_PORT"
+    START_KAFKA=false
+else
+    export KAFKA_BOOTSTRAP="kafka:9092"
+    START_KAFKA=true
+fi
+
+# Mongo
+if [ ! -z "$MONGODB_URI_OVERRIDE" ]; then
+    export MONGODB_URI="$MONGODB_URI_OVERRIDE"
+    START_MONGO=false
+    echo "🌐 Using external MongoDB: $MONGODB_URI"
+elif is_port_open "$MONGO_PORT"; then
+    echo "🔍 Detected existing MongoDB on port $MONGO_PORT. Using it."
+    export MONGODB_URI="mongodb://host.docker.internal:$MONGO_PORT/ruleaudit"
+    START_MONGO=false
+else
+    export MONGODB_URI="mongodb://mongo:27017/ruleaudit"
+    START_MONGO=true
+fi
+
+# Redis
+if [ ! -z "$REDIS_HOST_OVERRIDE" ]; then
+    export REDIS_HOST="$REDIS_HOST_OVERRIDE"
+    START_REDIS=false
+    echo "🌐 Using external Redis: $REDIS_HOST"
+elif is_port_open "$REDIS_PORT"; then
+    echo "🔍 Detected existing Redis on port $REDIS_PORT. Using it."
+    export REDIS_HOST="host.docker.internal"
+    START_REDIS=false
+else
+    export REDIS_HOST="redis"
+    START_REDIS=true
+fi
 
 # Parse command line arguments
 FORCE_REBUILD=false
@@ -60,13 +108,10 @@ echo "🚀 Starting springboot-rules-demo Stack"
 echo "----------------------------------------------------------"
 echo "🖥️  UI Port:      $UI_PORT"
 echo "🔌 API Port:     $APP_PORT"
-echo "📦 Kafka Port:   $KAFKA_PORT"
-echo "🍃 Mongo Port:   $MONGO_PORT"
-echo "🔴 Redis Port:   $REDIS_PORT"
 echo "⚙️  Profiles:     $SPRING_PROFILES_ACTIVE"
-if [ ! -z "$KAFKA_BOOTSTRAP" ]; then echo "🌐 Ext Kafka:    $KAFKA_BOOTSTRAP"; fi
-if [ ! -z "$MONGODB_URI" ]; then     echo "🌐 Ext Mongo:    $MONGODB_URI"; fi
-if [ ! -z "$REDIS_HOST" ]; then      echo "🌐 Ext Redis:    $REDIS_HOST"; fi
+echo "📦 Kafka:        $KAFKA_BOOTSTRAP"
+echo "🍃 Mongo:        $MONGODB_URI"
+echo "🔴 Redis:        $REDIS_HOST"
 echo "----------------------------------------------------------"
 
 # If external services are provided, we don't necessarily want to fail if internal ones aren't healthy,
@@ -87,19 +132,26 @@ else
 fi
 
 # Stop existing services to ensure a clean start
+# We only stop what we might have started or what is in our compose file
+# However, to be safe and satisfy "restarting should be clean", we down the whole thing
+# but only if we are NOT using external services for everything.
 echo "🛑 Stopping existing services..."
 $DOCKER_COMPOSE down --remove-orphans
 
 # Rebuild and run
-# We use --build by default to satisfy the "autodetect changes" requirement.
-# Docker's layer caching ensures this is fast if no changes were made.
+# We only start services that are not already running locally or overridden
+SERVICES_TO_START="app ui"
+if [ "$START_KAFKA" = true ]; then SERVICES_TO_START="$SERVICES_TO_START kafka"; fi
+if [ "$START_MONGO" = true ]; then SERVICES_TO_START="$SERVICES_TO_START mongo"; fi
+if [ "$START_REDIS" = true ]; then SERVICES_TO_START="$SERVICES_TO_START redis"; fi
+
 if [ "$FORCE_REBUILD" = true ]; then
     echo "🔄 Forcing a clean rebuild..."
     $DOCKER_COMPOSE build --no-cache
-    $DOCKER_COMPOSE up -d --remove-orphans
+    $DOCKER_COMPOSE up -d --remove-orphans $SERVICES_TO_START
 else
     echo "🔍 Checking for changes and starting..."
-    $DOCKER_COMPOSE up -d --build --remove-orphans
+    $DOCKER_COMPOSE up -d --build --remove-orphans $SERVICES_TO_START
 fi
 
 echo "----------------------------------------------------------"
