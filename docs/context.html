@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spring-Kafka-Stream-Rules — Project Context &amp; Memory</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#171c24; --panel2:#1d242e; --border:#2a323d;
+    --fg:#d7dde5; --muted:#8b97a7; --accent:#4ea1ff; --accent2:#36d399;
+    --warn:#f6c177; --err:#f7768e; --code:#0b0e13;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:29px;margin:0 0 4px;letter-spacing:-.5px}
+  h2{font-size:20px;margin:36px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--accent)}
+  .sub{color:var(--muted);margin:0 0 6px}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;color:#c8d3e0}
+  pre{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow:auto}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.6}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--border);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--muted);font-weight:600}
+  td.id{white-space:nowrap;font-weight:700;color:var(--accent);font-family:monospace}
+  .note{border-left:3px solid var(--accent);background:var(--panel);padding:10px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+  .warn{border-left-color:var(--warn)} .good{border-left-color:var(--accent2)}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--border);border-radius:999px;padding:3px 11px;font-size:12px;color:var(--muted);margin:0 6px 6px 0}
+  .ok{color:var(--accent2)} .muted{color:var(--muted)} .err{color:var(--err)}
+  .toc{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 20px;margin:18px 0;columns:2;font-size:14px}
+  .toc a{display:block;padding:2px 0}
+  footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--border);color:var(--muted);font-size:13px}
+  .tag{font-size:11px;padding:1px 7px;border-radius:4px;background:var(--panel2);border:1px solid var(--border);color:var(--muted)}
+  .tag.done{color:var(--accent2);border-color:var(--accent2)}
+  .tag.plan{color:var(--warn);border-color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Project Context &amp; Memory</h1>
+  <p class="sub">Spring-Kafka-Stream-Rules — living context for humans and agents. Source of truth for
+     decisions: <a href="../IMPLEMENTATION_CONTEXT_V2.md">IMPLEMENTATION_CONTEXT_V2.md</a>.
+     Build plan for the next slice: <a href="../HANDOFF.md">HANDOFF.md</a>.</p>
+  <div>
+    <span class="pill">Java 21</span><span class="pill">Spring Boot 3.3.5</span>
+    <span class="pill">Gradle 8.10.2</span><span class="pill">Kafka Streams</span>
+    <span class="pill">MongoDB</span><span class="pill">as of 2026-06-16</span>
+  </div>
+
+  <div class="toc">
+    <a href="#system">1. The system in one paragraph</a>
+    <a href="#state">2. Current build state</a>
+    <a href="#decisions">3. Locked decisions (D1–D17)</a>
+    <a href="#layout">4. Package layout</a>
+    <a href="#semantics">5. Behavioural semantics</a>
+    <a href="#next">6. Next slice</a>
+    <a href="#workflow">7. How this was built (local-LLM loop)</a>
+    <a href="#gotchas">8. Gotchas</a>
+  </div>
+
+  <h2 id="system">1. The system in one paragraph</h2>
+  <p>Consume JSON events from a <b>source</b> Kafka topic. For each event, evaluate a set of
+     <b>database-stored SpEL boolean rules</b>. If <b>any</b> rule matches (any-match), route the event to a
+     <b>target</b> topic. <b>Every</b> event — matched or not — produces an audit record to an internal
+     <b>audit</b> topic, inside the same exactly-once Kafka transaction as the routing. A <b>separate</b>
+     consumer drains the audit topic and writes audit records to <b>MongoDB</b> (idempotent upsert), with a
+     dead-letter topic for poison messages.</p>
+
+  <h2 id="state">2. Current build state</h2>
+  <div class="note good">
+    <b>Runs end-to-end in Docker.</b> <code>docker compose up --build</code> (profile <code>demo</code>)
+    produces 25 messages → <span class="ok">13 MATCHED</span> / 6 UNMATCHED / <span class="err">6 ERRORED</span>,
+    25 audit docs in Mongo. EOS confirmed via transaction commit markers on the target/audit topics.
+  </div>
+  <table>
+    <tr><th>Component</th><th>Status</th><th>Notes</th></tr>
+    <tr><td>SpEL eval core (<code>eval</code>, <code>json</code>, <code>rules</code>)</td><td><span class="tag done">done</span></td><td>TDD; 23 unit + pipeline tests green</td></tr>
+    <tr><td>Kafka Streams topology (<code>exactly_once_v2</code>)</td><td><span class="tag done">done</span></td><td>StreamsBuilder DSL (refactored from low-level Processor API)</td></tr>
+    <tr><td>Audit consumer → MongoDB</td><td><span class="tag done">done</span></td><td>manual ack after write, <code>read_committed</code>, write-concern majority</td></tr>
+    <tr><td>Docker stack (Kafka KRaft + Mongo + app)</td><td><span class="tag done">done</span></td><td><code>docker-compose.yml</code></td></tr>
+    <tr><td>Rule store</td><td><span class="tag">interim</span></td><td>H2 + JPA, 22 rules seeded at startup</td></tr>
+    <tr><td>Rule store → Mongo + Redis + CRUD UI</td><td><span class="tag plan">planned</span></td><td>D6; see <a href="../HANDOFF.md">HANDOFF.md</a></td></tr>
+    <tr><td>Audit DLT retry handler · TopologyTestDriver tests</td><td><span class="tag plan">open</span></td><td>DLT topic exists; handler not yet wired</td></tr>
+  </table>
+
+  <h2 id="decisions">3. Locked decisions (D1–D17)</h2>
+  <p class="muted">Do not re-litigate without reason. If you change one, update it in the v2 spec and note the change.</p>
+  <table>
+    <tr><th>#</th><th>Decision</th><th>Choice</th></tr>
+    <tr><td class="id">D1</td><td>Stream framework</td><td>Kafka Streams (not plain consumer/producer)</td></tr>
+    <tr><td class="id">D2</td><td>Processing guarantee</td><td><code>exactly_once_v2</code></td></tr>
+    <tr><td class="id">D3</td><td>Audit delivery</td><td>Audit produced to internal topic <b>inside</b> the EOS txn; separate consumer writes Mongo</td></tr>
+    <tr><td class="id">D4</td><td>Mongo write style</td><td>Synchronous <code>MongoTemplate</code> upsert, write-concern <code>majority</code>, manual ack after Mongo ack</td></tr>
+    <tr><td class="id">D5</td><td>Mongo consistency</td><td>Idempotent upsert on deterministic <code>auditId</code> → effectively-once. On reprocess with changed rules, last verdict wins</td></tr>
+    <tr><td class="id">D6</td><td>Rule storage</td><td><b>MongoDB</b> = truth; <b>Redis</b> = cache of active rules; in-JVM <code>RuleCache</code> holds compiled <code>Expression</code>s; CRUD UI refreshes Redis + Pub/Sub <code>rules-changed</code> <span class="tag plan">planned</span></td></tr>
+    <tr><td class="id">D7</td><td>Rule language</td><td>SpEL, one boolean expression per rule</td></tr>
+    <tr><td class="id">D8</td><td>Rule context root</td><td><code>Map&lt;String,Object&gt;</code> from event JSON; indexer syntax <code>['field']</code> (NOT a raw <code>JsonNode</code>)</td></tr>
+    <tr><td class="id">D9</td><td>Rule combinator</td><td>Model 4 — composite single-expression rules; cross-rule = any-match</td></tr>
+    <tr><td class="id">D10</td><td>SpEL security</td><td><code>SimpleEvaluationContext.forReadOnlyDataBinding()</code> — rules are untrusted</td></tr>
+    <tr><td class="id">D11</td><td>Audit completeness</td><td>MATCHED, UNMATCHED, ERRORED all audited; one record per event</td></tr>
+    <tr><td class="id">D12</td><td>Topology branching</td><td><b>StreamsBuilder DSL</b>: <code>process(RoutingProcessor)</code> → one keyed <code>RoutingResult</code>, split by the DSL (filter→target; mapValues→audit). <code>@EnableKafkaStreams</code>, auto-startup off, started after rules load</td></tr>
+    <tr><td class="id">D13</td><td>Language / platform</td><td>Java 21, Spring Boot 3.x, spring-kafka 3.x (BOM-managed)</td></tr>
+    <tr><td class="id">D14</td><td>Poison handling</td><td>Retry w/ backoff on audit consumer, then route to audit DLT <span class="tag plan">handler open</span></td></tr>
+    <tr><td class="id">D15</td><td>JSON→Java coercion</td><td>Rules assume well-typed JSON; wrong type evaluates false or throws → ERRORED</td></tr>
+    <tr><td class="id">D16</td><td>Source parse failure</td><td>Malformed source event must not wedge the stream; becomes an ERRORED audit</td></tr>
+    <tr><td class="id">D17</td><td>Value format</td><td>JSON as String/bytes Serde (no Avro/Schema Registry)</td></tr>
+  </table>
+
+  <h2 id="layout">4. Package layout</h2>
+<pre><code>com.codrite.ruleaudit
+├─ RuleAuditApplication            @SpringBootApplication
+├─ config/
+│   ├─ AppConfig                   RuleEvaluator, JsonContextFactory, ObjectMapper (JSR-310) beans
+│   ├─ KafkaStreamsConfig          @EnableKafkaStreams; StreamsBuilder DSL topology
+│   ├─ MongoConfig                 MongoTemplate, write-concern majority
+│   ├─ TopicsConfig                NewTopic beans (source/target/audit/DLT)
+│   ├─ RuleSeeder                  seeds 22 SpEL rules at startup (order 0)
+│   └─ PipelineStarter             reload rules → start streams factory (order 1)
+├─ rules/  Rule (JPA) · RuleRepository · RuleCache · RuleLoader · CompiledRule
+├─ eval/   RuleEvaluator · EvaluationResult
+├─ json/   JsonContextFactory · JsonParseException
+├─ topology/ RoutingProcessor · RoutingResult
+├─ audit/  AuditRecord · AuditType · AuditKey · AuditConsumer
+└─ demo/   DemoMessages · DemoRunner   (profile "demo")</code></pre>
+
+  <h2 id="semantics">5. Behavioural semantics</h2>
+  <h3>Verdict (match-wins)</h3>
+  <table>
+    <tr><th>matched any?</th><th>any rule errored?</th><th>verdict</th><th>routed to target?</th></tr>
+    <tr><td>yes</td><td>no</td><td class="ok">MATCHED</td><td>yes</td></tr>
+    <tr><td>yes</td><td>yes</td><td class="ok">MATCHED</td><td>yes</td></tr>
+    <tr><td>no</td><td>yes</td><td class="err">ERRORED</td><td>no</td></tr>
+    <tr><td>no</td><td>no</td><td>UNMATCHED</td><td>no</td></tr>
+  </table>
+  <p>Rules are independent: a single broken rule never blocks a legitimately matching event. Per-rule
+     errors are always recorded in the audit record for forensics.</p>
+  <h3>Determinism &amp; idempotency</h3>
+  <p><code>auditId = sha256(topic | partition | offset)</code>. Stable across EOS reprocessing, so the Mongo
+     upsert is idempotent. Audit record is keyed by <code>auditId</code> so matched/unmatched records for an
+     event stay co-partitioned.</p>
+
+  <h2 id="next">6. Next slice — Redis-cached, Mongo-persisted rules + CRUD UI</h2>
+  <p>Replaces the interim H2/JPA store (D6). Layering: <b>Mongo</b> (truth) → <b>Redis</b> (cache of active
+     rule docs) → in-JVM <code>RuleCache</code> (compiled SpEL, hot path). A REST API + static HTML page does
+     CRUD; each mutation writes Mongo, refreshes Redis, and publishes a Redis Pub/Sub <code>rules-changed</code>
+     signal so running instances recompile their cache.</p>
+  <div class="note warn">
+    Carry-over gotcha for that slice: adding <code>spring-boot-starter-web</code> makes Spring auto-configure
+    an <code>ObjectMapper</code>, which will collide with the manual <code>@Bean</code> in <code>AppConfig</code>
+    — reconcile (mark <code>@Primary</code> or switch to a builder customizer). Full plan in
+    <a href="../HANDOFF.md">HANDOFF.md</a>.
+  </div>
+
+  <h2 id="workflow">7. How this was built — the local-LLM loop</h2>
+  <p>Codegen is delegated to a local LLM; the orchestrating session specs &amp; reviews. Division:
+     <b>logic/data classes → local LLM</b> via the loop; <b>framework wiring / config / infra → hand-written</b>.</p>
+  <ul>
+    <li><b>Bootstrap-then-loop:</b> scaffolding + <code>tools/</code> scripts written once; thereafter codegen
+        runs through <code>tools/llm-loop.py</code> (generate → <code>./gradlew test</code> → self-fix).</li>
+    <li><b>TDD:</b> tests generated single-shot with <code>tools/llm-gen.sh</code>, confirmed RED, then impl
+        looped to GREEN. Tests reviewed hardest — they are the contract.</li>
+    <li>Specs live in <code>specs/</code> (one shared contract + per-file specs) so regeneration is cheap.</li>
+    <li>Full operating rules: <code>~/.claude/rules/common/local-llm-workflow.md</code>.</li>
+  </ul>
+
+  <h2 id="gotchas">8. Gotchas carried in the repo</h2>
+  <ul>
+    <li>Gradle launcher pinned to <b>JDK 21</b> via <code>gradle.properties</code> (host default JDK is too new
+        for Gradle 8.10.2). <code>.dockerignore</code> excludes that file so the image build uses the image's JDK 21.</li>
+    <li>Single-broker EOS needs replication factors = 1 (<code>__transaction_state</code>,
+        <code>__consumer_offsets</code>, streams RF) — set in <code>docker-compose.yml</code> + <code>application.yml</code>.</li>
+    <li>Audit consumer must read <code>isolation.level=read_committed</code> so it only sees committed EOS transactions.</li>
+    <li>SpEL indexer <code>['field']</code> works on a <code>Map</code> root, NOT a raw <code>JsonNode</code>.</li>
+    <li>Base starter (no spring-web) does not auto-configure an <code>ObjectMapper</code> — one is defined in <code>AppConfig</code> with JSR-310.</li>
+    <li>Records + Jackson + Spring Data Mongo all work (<code>-parameters</code> is on under Boot).</li>
+  </ul>
+
+  <footer>
+    Generated 2026-06-16 · See also <a href="README.html">README.html</a> ·
+    <a href="../IMPLEMENTATION_CONTEXT_V2.md">IMPLEMENTATION_CONTEXT_V2.md</a> ·
+    <a href="../HANDOFF.md">HANDOFF.md</a>
+  </footer>
+
+</div>
+</body>
+</html>

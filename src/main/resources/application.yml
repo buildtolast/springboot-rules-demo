@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: rule-audit
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/ruleaudit}
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: 6379
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    streams:
+      application-id: rule-audit-streams
+      replication-factor: 1
+      # PipelineStarter starts streams after rules are loaded
+      auto-startup: false
+      properties:
+        processing.guarantee: exactly_once_v2
+        default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        default.value.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        commit.interval.ms: 1000
+        num.stream.threads: 1
+        # single-broker EOS: internal/txn topics must tolerate RF=1
+        default.deserialization.exception.handler: org.apache.kafka.streams.errors.LogAndContinueExceptionHandler
+    consumer:
+      group-id: audit-writer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      properties:
+        # EOS: only consume records from committed Streams transactions
+        isolation.level: read_committed
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      ack-mode: manual_immediate
+
+app:
+  topics:
+    source: source-events
+    target: target-events
+    audit: audit-events
+    audit-dlt: audit-events.DLT
+  partitions: 1
+  replication-factor: 1
+  # demo runner (active only under the 'demo' profile)
+  demo:
+    message-count: 25
+    settle-millis: 8000
+
+logging:
+  level:
+    root: INFO
+    com.codrite.ruleaudit: INFO
+    org.apache.kafka: WARN
+    org.springframework.kafka: WARN

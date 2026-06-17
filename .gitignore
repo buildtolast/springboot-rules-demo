@@ -1,0 +1,5 @@
+/build/
+/.gradle/
+/.idea/
+/.junie/
+/frontend/test-results/

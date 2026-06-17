@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spring-Kafka-Stream-Rules — README</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#171c24; --panel2:#1d242e; --border:#2a323d;
+    --fg:#d7dde5; --muted:#8b97a7; --accent:#4ea1ff; --accent2:#36d399;
+    --warn:#f6c177; --err:#f7768e; --code:#0b0e13;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:920px;margin:0 auto;padding:40px 24px 80px}
+  h1{font-size:30px;margin:0 0 4px;letter-spacing:-.5px}
+  h2{font-size:21px;margin:38px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  h3{font-size:16px;margin:24px 0 8px;color:var(--accent)}
+  p,li{color:var(--fg)}
+  .sub{color:var(--muted);font-size:15px;margin:0 0 8px}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  code{background:var(--code);padding:2px 6px;border-radius:4px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;color:#c8d3e0}
+  pre{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:14px 16px;overflow:auto}
+  pre code{background:none;padding:0;font-size:12.5px;line-height:1.6}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--border);
+        border-radius:999px;padding:3px 11px;font-size:12px;color:var(--muted);margin:0 6px 6px 0}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin:14px 0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+  th,td{border:1px solid var(--border);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--muted);font-weight:600}
+  .note{border-left:3px solid var(--accent);background:var(--panel);padding:10px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+  .warn{border-left-color:var(--warn)}
+  .ok{color:var(--accent2)} .muted{color:var(--muted)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+  .grid .card{margin:0;text-align:center}
+  .big{font-size:26px;font-weight:700;display:block}
+  footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--border);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Spring-Kafka-Stream-Rules</h1>
+  <p class="sub">A Kafka Streams pipeline that evaluates database-stored SpEL rules against JSON events,
+     routes matches, and audits <em>every</em> event to MongoDB — exactly-once.</p>
+  <div>
+    <span class="pill">Java 21</span>
+    <span class="pill">Spring Boot 3.3.5</span>
+    <span class="pill">Kafka Streams (EOS v2)</span>
+    <span class="pill">MongoDB</span>
+    <span class="pill">SpEL rules</span>
+    <span class="pill">Docker Compose</span>
+  </div>
+
+  <h2>What it does</h2>
+  <p>Consume JSON events from a <b>source</b> topic. For each event, evaluate a set of
+     <b>SpEL boolean rules</b>. If <b>any</b> rule matches (any-match), the event is routed to a
+     <b>target</b> topic. <b>Every</b> event — matched, unmatched, or errored — produces an
+     <b>audit record</b> to an internal <b>audit</b> topic <em>inside the same exactly-once
+     transaction</em>. A separate consumer drains the audit topic and writes records to
+     <b>MongoDB</b> with an idempotent upsert (effectively-once).</p>
+
+  <div class="note">
+    Kafka EOS does not span the Mongo write (no XA is possible across Kafka + Mongo).
+    The audit topic + deterministic <code>auditId</code> + idempotent upsert give
+    <b>effectively-once</b> persistence instead.
+  </div>
+
+  <h2>Architecture</h2>
+<pre><code>producer ─▶ source-events
+                 │
+        ┌────────▼─────────────────────────────────┐
+        │  Kafka Streams app (exactly_once_v2)      │
+        │  StreamsBuilder DSL:                       │
+        │   source.process(RoutingProcessor)         │
+        │      → RoutingResult{matched,routed,audit} │
+        │        ├─ filter(matched) → target-events  │
+        │        └─ (always)        → audit-events   │
+        │  rules: RuleCache (compiled SpEL, in-JVM)  │
+        └────────┬───────────────────┬──────────────┘
+            target-events        audit-events
+                                      │  (read_committed)
+                              ┌───────▼────────┐
+                              │ AuditConsumer  │ manual ack after write
+                              └───────┬────────┘
+                                      ▼
+                                 MongoDB (audits)  upsert by _id</code></pre>
+
+  <h2>Prerequisites</h2>
+  <ul>
+    <li><b>Docker</b> (Desktop / OrbStack) — for the end-to-end run.</li>
+    <li><b>JDK 21</b> — only for local (non-Docker) builds. The Gradle launcher is pinned to JDK&nbsp;21 in
+        <code>gradle.properties</code> (the repo was authored on a host whose default JDK was too new for Gradle 8.10.2).</li>
+  </ul>
+
+  <h2>Quick start — run the full pipeline</h2>
+  <p>The <code>demo</code> profile produces a batch of messages, lets the pipeline settle, then prints a result summary.</p>
+<pre><code>docker compose up --build</code></pre>
+  <p>Watch the <code>ruleaudit-app</code> logs for the <code>DEMO RESULTS</code> block. A clean run over 25 messages:</p>
+  <div class="grid">
+    <div class="card"><span class="big ok">13</span><span class="muted">MATCHED</span></div>
+    <div class="card"><span class="big">6</span><span class="muted">UNMATCHED</span></div>
+    <div class="card"><span class="big" style="color:var(--err)">6</span><span class="muted">ERRORED</span></div>
+  </div>
+  <p class="muted">25 audit documents land in Mongo. EOS is verifiable from topic end-offsets:
+     <code>target-events:14</code> and <code>audit-events:26</code> — record counts plus one
+     transaction commit marker each (the source topic, non-transactional, has none).</p>
+
+  <h3>Inspect the results</h3>
+<pre><code># audit counts by type
+docker exec ruleaudit-mongo mongosh ruleaudit --quiet \
+  --eval 'JSON.stringify(db.audits.aggregate([{$group:{_id:"$auditType",n:{$sum:1}}}]).toArray())'
+
+# topic offsets
+docker exec ruleaudit-kafka /opt/kafka/bin/kafka-get-offsets.sh \
+  --bootstrap-server localhost:9092 --topic audit-events
+
+# tear down
+docker compose down -v</code></pre>
+
+  <h2>Build &amp; test locally (no Docker)</h2>
+<pre><code>./gradlew test        # unit + pipeline integration tests
+./gradlew bootJar     # build the runnable fat jar</code></pre>
+  <p class="muted">Running the app outside Docker requires a reachable Kafka broker and MongoDB; set
+     <code>KAFKA_BOOTSTRAP</code> and <code>MONGODB_URI</code> accordingly.</p>
+
+  <h2>Configuration</h2>
+  <table>
+    <tr><th>Env var</th><th>Default</th><th>Purpose</th></tr>
+    <tr><td><code>KAFKA_BOOTSTRAP</code></td><td><code>localhost:9092</code></td><td>Kafka bootstrap servers</td></tr>
+    <tr><td><code>MONGODB_URI</code></td><td><code>mongodb://localhost:27017/ruleaudit</code></td><td>Mongo connection</td></tr>
+    <tr><td><code>SPRING_PROFILES_ACTIVE</code></td><td><span class="muted">(none)</span></td><td>Set to <code>demo</code> to run the producer/report driver</td></tr>
+  </table>
+  <p>Topics (<code>source-events</code>, <code>target-events</code>, <code>audit-events</code>,
+     <code>audit-events.DLT</code>) are created on startup via <code>TopicsConfig</code>.</p>
+
+  <h2>Writing rules</h2>
+  <p>A rule is one <b>SpEL boolean expression</b>. The evaluation root is a
+     <code>Map&lt;String,Object&gt;</code> built from the event JSON, so fields use indexer syntax:</p>
+<pre><code>['amount'] &gt; 1000
+['region'] == 'EU' and ['flagged'] == true
+['order']['total'] &gt;= 50            // nested</code></pre>
+  <div class="note warn">
+    <b>Security:</b> rules are untrusted input and are evaluated with
+    <code>SimpleEvaluationContext.forReadOnlyDataBinding()</code>. Type references such as
+    <code>T(java.lang.Runtime)…</code> cannot execute — they fail safely and are recorded as a rule error.
+  </div>
+  <p><b>Verdict semantics (match-wins):</b> any rule matching ⇒ <code>MATCHED</code> (routed), even if other
+     rules error. <code>ERRORED</code> only when nothing matched and at least one rule threw; otherwise
+     <code>UNMATCHED</code>. Errors are always recorded for forensics.</p>
+
+  <h2>Project layout</h2>
+<pre><code>com.codrite.ruleaudit
+├─ RuleAuditApplication
+├─ config/   AppConfig, KafkaStreamsConfig (DSL), MongoConfig,
+│            TopicsConfig, RuleSeeder, PipelineStarter
+├─ rules/    Rule, RuleRepository, RuleCache, RuleLoader, CompiledRule
+├─ eval/     RuleEvaluator, EvaluationResult
+├─ json/     JsonContextFactory, JsonParseException
+├─ topology/ RoutingProcessor, RoutingResult
+├─ audit/    AuditRecord, AuditType, AuditKey, AuditConsumer
+└─ demo/     DemoMessages, DemoRunner</code></pre>
+
+  <h2>Status &amp; roadmap</h2>
+  <table>
+    <tr><th>Area</th><th>State</th></tr>
+    <tr><td>SpEL eval core, EOS topology, audit → Mongo</td><td class="ok">Done, runs E2E in Docker</td></tr>
+    <tr><td>Rule store</td><td>Currently H2 + JPA (22 rules seeded at startup)</td></tr>
+    <tr><td>Rule store → MongoDB + Redis cache + CRUD UI</td><td class="muted">Planned (next slice — see <a href="../HANDOFF.md">HANDOFF.md</a>)</td></tr>
+    <tr><td>Audit DLT retry handler, TopologyTestDriver tests</td><td class="muted">Open</td></tr>
+  </table>
+
+  <footer>
+    Authoritative spec: <a href="../IMPLEMENTATION_CONTEXT_V2.md">IMPLEMENTATION_CONTEXT_V2.md</a> ·
+    Architecture &amp; decisions: <a href="context.html">context.html</a> ·
+    Generated 2026-06-16.
+  </footer>
+
+</div>
+</body>
+</html>
