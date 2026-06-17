@@ -208,14 +208,23 @@ fi
 
 echo "----------------------------------------------------------"
 echo "⏳ Waiting for services to initialize..."
-MAX_ATTEMPTS=30
+MAX_ATTEMPTS=60
 ATTEMPT=1
 while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-    if curl -s "http://localhost:$UI_PORT/api/health/status" | grep -q "HEALTHY" > /dev/null 2>&1; then
+    RESPONSE=$(curl -s "http://localhost:$UI_PORT/api/health/status" || echo "FAILED")
+    if echo "$RESPONSE" | grep -q "HEALTHY" > /dev/null 2>&1; then
         echo "✅ System is healthy and ready!"
         break
     fi
-    echo "   (Attempt $ATTEMPT/$MAX_ATTEMPTS) Still warming up..."
+    
+    if [ "$RESPONSE" = "FAILED" ]; then
+        STATE="OFFLINE"
+    else
+        # Extract Kafka state using grep/sed for portability
+        STATE=$(echo "$RESPONSE" | grep -o '"kafkaStreams":"[^"]*"' | cut -d'"' -f4)
+    fi
+    
+    echo "   (Attempt $ATTEMPT/$MAX_ATTEMPTS) System status: $STATE"
     sleep 2
     ATTEMPT=$((ATTEMPT + 1))
 done
