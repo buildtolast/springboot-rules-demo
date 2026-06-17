@@ -10,8 +10,6 @@ export APP_PORT=${APP_PORT:-8081}
 export KAFKA_PORT=${KAFKA_PORT:-9092}
 export MONGO_PORT=${MONGO_PORT:-27017}
 export REDIS_PORT=${REDIS_PORT:-6379}
-export CONTAINER_UI_PORT=${CONTAINER_UI_PORT:-80}
-export CONTAINER_APP_PORT=${CONTAINER_APP_PORT:-8080}
 export SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-demo}
 
 # Connection overrides
@@ -46,8 +44,6 @@ while [[ "$#" -gt 0 ]]; do
             echo "  KAFKA_PORT     The port for Kafka (default: 9092)"
             echo "  MONGO_PORT     The port for MongoDB (default: 27017)"
             echo "  REDIS_PORT     The port for Redis (default: 6379)"
-            echo "  CONTAINER_UI_PORT Internal container port for UI (default: 80)"
-            echo "  CONTAINER_APP_PORT Internal container port for API (default: 8080)"
             echo "  SPRING_PROFILES_ACTIVE Spring profiles to run with (default: demo)"
             echo ""
             echo "External Connections (Overrides):"
@@ -118,7 +114,7 @@ elif is_port_open "$APP_PORT"; then
     export BACKEND_URL="http://host.docker.internal:$APP_PORT"
     START_APP=false
 else
-    export BACKEND_URL="http://app:$CONTAINER_APP_PORT"
+    export BACKEND_URL="http://app:$APP_PORT"
     START_APP=true
 fi
 
@@ -128,7 +124,7 @@ if [ ! -z "$KAFKA_BOOTSTRAP_OVERRIDE" ]; then
     START_KAFKA=false
     echo "🌐 Using external Kafka: $KAFKA_BOOTSTRAP"
 else
-    export KAFKA_BOOTSTRAP="kafka:9092"
+    export KAFKA_BOOTSTRAP="kafka:$KAFKA_PORT"
     START_KAFKA=true
 fi
 
@@ -138,7 +134,7 @@ if [ ! -z "$MONGODB_URI_OVERRIDE" ]; then
     START_MONGO=false
     echo "🌐 Using external MongoDB: $MONGODB_URI"
 else
-    export MONGODB_URI="mongodb://mongo:27017/ruleaudit"
+    export MONGODB_URI="mongodb://mongo:$MONGO_PORT/ruleaudit"
     START_MONGO=true
 fi
 
@@ -155,8 +151,8 @@ fi
 echo "----------------------------------------------------------"
 echo "🚀 Starting springboot-rules-demo Stack"
 echo "----------------------------------------------------------"
-echo "🖥️  UI Port:      $UI_PORT (Container: $CONTAINER_UI_PORT)"
-echo "🔌 API Port:     $APP_PORT (Container: $CONTAINER_APP_PORT)"
+echo "🖥️  UI Port:      $UI_PORT"
+echo "🔌 API Port:     $APP_PORT"
 echo "🔌 API:        $BACKEND_URL"
 echo "⚙️  Profiles:     $SPRING_PROFILES_ACTIVE"
 echo "📦 Kafka:        $KAFKA_BOOTSTRAP"
