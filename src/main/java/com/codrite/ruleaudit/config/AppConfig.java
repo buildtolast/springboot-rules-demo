@@ -10,23 +10,33 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
-/** Plain (non-annotated) core components exposed as beans. */
+/**
+ * General application configuration for shared infrastructure components.
+ */
 @Configuration
 public class AppConfig {
 
+    /**
+     * Provides the evaluation engine for SpEL rules.
+     */
     @Bean
     public RuleEvaluator ruleEvaluator() {
         return new RuleEvaluator();
     }
 
+    /**
+     * Provides the factory for transforming JSON into evaluation contexts.
+     */
     @Bean
     public JsonContextFactory jsonContextFactory() {
         return new JsonContextFactory();
     }
 
     /**
-     * With spring-web, Spring auto-configures an ObjectMapper.
-     * We mark ours as @Primary to ensure it's used for our records.
+     * Configures the primary Jackson {@link ObjectMapper} for the application.
+     * <p>
+     * Includes support for Java 8 Date/Time types and ensures ISO-8601 formatting 
+     * for timestamps.
      */
     @Bean
     @Primary

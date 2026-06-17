@@ -35,8 +35,10 @@ public class RuleMatchingPipelineIT {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isEqualTo(AuditType.MATCHED);
-        Assertions.assertThat(result.matchedRuleIds()).containsExactly("r1");
-        Assertions.assertThat(result.matchedRuleIds()).doesNotContain("r2");
+        Assertions.assertThat(result.ruleResults())
+                .filteredOn(r -> r.type() == AuditType.MATCHED)
+                .extracting("ruleId")
+                .containsExactly("r1");
     }
 
     @Test
@@ -46,7 +48,10 @@ public class RuleMatchingPipelineIT {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isEqualTo(AuditType.MATCHED);
-        Assertions.assertThat(result.matchedRuleIds()).containsExactly("r2");
+        Assertions.assertThat(result.ruleResults())
+                .filteredOn(r -> r.type() == AuditType.MATCHED)
+                .extracting("ruleId")
+                .containsExactly("r2");
     }
 
     @Test
@@ -56,7 +61,9 @@ public class RuleMatchingPipelineIT {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isEqualTo(AuditType.UNMATCHED);
-        Assertions.assertThat(result.matchedRuleIds()).isEmpty();
+        Assertions.assertThat(result.ruleResults())
+                .filteredOn(r -> r.type() == AuditType.MATCHED)
+                .isEmpty();
     }
 
     @Test

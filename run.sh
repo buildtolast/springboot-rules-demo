@@ -6,6 +6,10 @@ set -e
 
 # Default values for environment variables
 export UI_PORT=${UI_PORT:-8080}
+export APP_PORT=${APP_PORT:-8081}
+export KAFKA_PORT=${KAFKA_PORT:-9092}
+export MONGO_PORT=${MONGO_PORT:-27017}
+export REDIS_PORT=${REDIS_PORT:-6379}
 export SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-demo}
 
 # Parse command line arguments
@@ -25,6 +29,10 @@ while [[ "$#" -gt 0 ]]; do
             echo ""
             echo "Environment Variables (Overrides):"
             echo "  UI_PORT        The port where the UI will be accessible (default: 8080)"
+            echo "  APP_PORT       The port where the Backend API will be accessible (default: 8081)"
+            echo "  KAFKA_PORT     The port for Kafka (default: 9092)"
+            echo "  MONGO_PORT     The port for MongoDB (default: 27017)"
+            echo "  REDIS_PORT     The port for Redis (default: 6379)"
             echo "  SPRING_PROFILES_ACTIVE Spring profiles to run with (default: demo)"
             echo ""
             echo "Example:"
@@ -40,8 +48,12 @@ done
 echo "----------------------------------------------------------"
 echo "🚀 Starting Spring-Kafka-Stream-Rules Stack"
 echo "----------------------------------------------------------"
-echo "🖥️  UI Port:    $UI_PORT"
-echo "⚙️  Profiles:   $SPRING_PROFILES_ACTIVE"
+echo "🖥️  UI Port:      $UI_PORT"
+echo "🔌 API Port:     $APP_PORT"
+echo "📦 Kafka Port:   $KAFKA_PORT"
+echo "🍃 Mongo Port:   $MONGO_PORT"
+echo "🔴 Redis Port:   $REDIS_PORT"
+echo "⚙️  Profiles:     $SPRING_PROFILES_ACTIVE"
 echo "----------------------------------------------------------"
 
 # Check if Docker is running
@@ -76,7 +88,8 @@ fi
 echo "----------------------------------------------------------"
 echo "✅ Stack is running in the background."
 echo "📝 To view logs, run: $DOCKER_COMPOSE logs -f"
-echo "🌐 UI is available at: http://localhost:$UI_PORT"
+echo "🌐 UI is available at:  http://localhost:$UI_PORT"
+echo "🔌 API is available at: http://localhost:$APP_PORT"
 echo "----------------------------------------------------------"
 
 if [ "$FOLLOW_LOGS" = true ]; then

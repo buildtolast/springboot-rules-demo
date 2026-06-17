@@ -1,44 +1,88 @@
 package com.codrite.ruleaudit.eval;
 
+import com.codrite.ruleaudit.audit.AuditType;
 import com.codrite.ruleaudit.rules.CompiledRule;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.expression.EvaluationContext;
 import org.springframework.expression.spel.support.SimpleEvaluationContext;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Evaluates a set of compiled SpEL rules against a JSON-derived data structure.
+ * <p>
+ * This class uses Spring Expression Language (SpEL) in a read-only data binding mode
+ * to safely evaluate logic against the input map.
+ */
+@Slf4j
 public class RuleEvaluator {
-    private static final Logger log = LoggerFactory.getLogger(RuleEvaluator.class);
+    
+    /**
+     * Shared evaluation context configured for safe, read-only access to root object properties.
+     */
     private final EvaluationContext context = SimpleEvaluationContext.forReadOnlyDataBinding().build();
 
-    public EvaluationResult evaluate(java.util.Map<String, Object> root,
-                                     java.util.List<CompiledRule> rules) {
+    /**
+     * Evaluates all provided rules against the root data object.
+     *
+     * @param root  The data object (usually a Map) representing the record to evaluate.
+     * @param rules The list of {@link CompiledRule}s to apply.
+     * @return An {@link EvaluationResult} containing per-rule results.
+     */
+    public EvaluationResult evaluate(Map<String, Object> root, List<CompiledRule> rules) {
         log.debug("Evaluating {} rules against root object", rules.size());
-        java.util.List<String> matchedRuleIds = new java.util.ArrayList<>();
-        java.util.List<String> evaluatedRuleIds = new java.util.ArrayList<>();
-        java.util.Map<String, String> errors = new java.util.LinkedHashMap<>();
+        
+        List<RuleResult> results = new ArrayList<>();
 
+        // Iterate through each rule and evaluate its expression against the root data
         for (CompiledRule rule : rules) {
-            evaluatedRuleIds.add(rule.id());
-
             try {
-                Boolean value = rule.expression().getValue(context, root, Boolean.class);
-                if (Boolean.TRUE.equals(value)) {
+                // Execute SpEL expression. Expects a Boolean result.
+                Boolean matched = rule.expression().getValue(context, root, Boolean.class);
+                
+                if (Boolean.TRUE.equals(matched)) {
                     log.debug("Rule matched: {} ({})", rule.description(), rule.id());
-                    matchedRuleIds.add(rule.id());
+                    // For matched rules, no reason is required
+                    results.add(new RuleResult(rule.id(), AuditType.MATCHED, null));
+                } else {
+                    // For unmatched rules, provide details about the comparison and values
+                    results.add(new RuleResult(rule.id(), AuditType.UNMATCHED, createUnmatchedReason(rule, root)));
                 }
             } catch (RuntimeException e) {
+                // If evaluation fails (e.g. property not found), we record it as an error for auditing
                 log.warn("Error evaluating rule {} ({}): {}", rule.description(), rule.id(), e.getMessage());
                 String message = e.getMessage();
-                errors.put(rule.id(), message == null ? e.toString() : message);
+                results.add(new RuleResult(rule.id(), AuditType.ERRORED, message == null ? e.toString() : message));
             }
         }
 
-        log.debug("Evaluation finished: {} matches out of {} rules", matchedRuleIds.size(), rules.size());
-        return new EvaluationResult(matchedRuleIds, evaluatedRuleIds, errors);
+        log.debug("Evaluation finished: {} rules processed", rules.size());
+        return new EvaluationResult(results);
+    }
+
+    /**
+     * Creates a descriptive reason for why a rule did not match.
+     * Includes the expression and the values of the fields referenced in it.
+     */
+    private String createUnmatchedReason(CompiledRule rule, Map<String, Object> root) {
+        String expression = rule.expression().getExpressionString();
+
+        // Collect values of fields mentioned in the expression to provide context
+        List<String> contextParts = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : root.entrySet()) {
+            String key = entry.getKey();
+            // Simple check to see if the key is likely used in the expression
+            if (expression.contains(key)) {
+                contextParts.add(key + "=" + entry.getValue());
+            }
+        }
+
+        StringBuilder reason = new StringBuilder("Condition not met: ").append(expression);
+        if (!contextParts.isEmpty()) {
+            reason.append(" (actual values: ").append(String.join(", ", contextParts)).append(")");
+        }
+        return reason.toString();
     }
 }

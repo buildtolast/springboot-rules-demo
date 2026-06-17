@@ -1,8 +1,7 @@
 package com.codrite.ruleaudit.demo;
 
 import com.codrite.ruleaudit.audit.AuditRecord;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -17,15 +16,21 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Demo driver (profile "demo"): produces N messages to the source topic, lets the
- * pipeline settle, then reports the audit outcomes recorded in Mongo.
+ * Demo driver component enabled via the "demo" Spring profile.
+ * <p>
+ * This runner automates an end-to-end test of the system by:
+ * <ol>
+ *     <li>Generating a batch of synthetic JSON events.</li>
+ *     <li>Producing these events to the Kafka source topic.</li>
+ *     <li>Waiting for the Kafka Streams pipeline and Audit consumer to process them.</li>
+ *     <li>Querying MongoDB to generate a summary report of evaluation outcomes.</li>
+ * </ol>
  */
+@Slf4j
 @Component
 @Order(2)
 @Profile("demo")
 public class DemoRunner implements ApplicationRunner {
-
-    private static final Logger log = LoggerFactory.getLogger(DemoRunner.class);
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final MongoTemplate mongoTemplate;
@@ -45,17 +50,28 @@ public class DemoRunner implements ApplicationRunner {
         this.settleMillis = settleMillis;
     }
 
+    /**
+     * Executes the demo workflow.
+     * @param args Application arguments.
+     * @throws Exception if data generation or Kafka communication fails.
+     */
     @Override
     public void run(ApplicationArguments args) throws Exception {
+        // Step 1: Generate synthetic messages using the helper
         List<String> messages = DemoMessages.generate(messageCount);
+        
+        // Step 2: Send all messages to the source topic
         for (String m : messages) {
             kafkaTemplate.send(sourceTopic, m);
         }
         kafkaTemplate.flush();
         log.info("DEMO: produced {} messages to '{}'", messages.size(), sourceTopic);
 
+        // Step 3: Wait for asynchronous processing to complete
+        log.info("DEMO: waiting {}ms for processing to settle...", settleMillis);
         Thread.sleep(settleMillis);
 
+        // Step 4: Aggregate results from MongoDB for reporting
         long total = mongoTemplate.count(new Query(), AuditRecord.class);
         long matched = countByType("MATCHED");
         long unmatched = countByType("UNMATCHED");
@@ -68,14 +84,21 @@ public class DemoRunner implements ApplicationRunner {
         log.info("  UNMATCHED : {}", unmatched);
         log.info("  ERRORED   : {}", errored);
         log.info("----------------------------------------------------");
+        
+        // Print a few samples to the console
         List<AuditRecord> samples = mongoTemplate.find(new Query().limit(5), AuditRecord.class);
         for (AuditRecord r : samples) {
-            log.info("sample {} {} matched={} event={}",
-                    r.auditType(), r.auditId().substring(0, 8), r.matchedRuleIds(), r.sourceEvent());
+            log.info("sample {} {} rule={} event={}",
+                    r.auditType(), r.auditId().substring(0, 8), r.ruleId(), r.sourceEvent());
         }
         log.info("=====================================================");
     }
 
+    /**
+     * Helper to count audit records by their verdict type.
+     * @param type The audit verdict type.
+     * @return The count of documents matching the type.
+     */
     private long countByType(String type) {
         return mongoTemplate.count(new Query(Criteria.where("auditType").is(type)), AuditRecord.class);
     }

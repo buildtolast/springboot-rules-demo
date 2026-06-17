@@ -2,28 +2,40 @@ package com.codrite.ruleaudit.eval;
 
 import com.codrite.ruleaudit.audit.AuditType;
 import java.util.List;
-import java.util.Map;
 
-public record EvaluationResult(
-        java.util.List<String> matchedRuleIds,
-        java.util.List<String> evaluatedRuleIds,
-        java.util.Map<String,String> errors) {
+/**
+ * Captures the outcome of evaluating a set of rules against a single record.
+ * 
+ * @param ruleResults Detailed results for each rule evaluated.
+ */
+public record EvaluationResult(java.util.List<RuleResult> ruleResults) {
 
+    /**
+     * Compact constructor to ensure non-null, immutable lists.
+     */
     public EvaluationResult {
-        matchedRuleIds = matchedRuleIds == null ? List.of() : List.copyOf(matchedRuleIds);
-        evaluatedRuleIds = evaluatedRuleIds == null ? List.of() : List.copyOf(evaluatedRuleIds);
-        errors = errors == null ? Map.of() : Map.copyOf(errors);
+        ruleResults = ruleResults == null ? List.of() : List.copyOf(ruleResults);
     }
 
+    /**
+     * @return true if at least one rule matched.
+     */
     public boolean matched() {
-        return !matchedRuleIds.isEmpty();
+        return ruleResults.stream().anyMatch(r -> r.type() == AuditType.MATCHED);
     }
 
+    /**
+     * Derives the overall audit verdict for the evaluation session.
+     * 
+     * @return {@link AuditType#MATCHED} if any rule matched, 
+     *         {@link AuditType#ERRORED} if no matches but errors occurred, 
+     *         otherwise {@link AuditType#UNMATCHED}.
+     */
     public AuditType verdict() {
         if (matched()) {
             return AuditType.MATCHED;
         }
-        if (!errors.isEmpty()) {
+        if (ruleResults.stream().anyMatch(r -> r.type() == AuditType.ERRORED)) {
             return AuditType.ERRORED;
         }
         return AuditType.UNMATCHED;

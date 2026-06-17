@@ -17,7 +17,7 @@ const mockRules = [
   }
 ];
 
-test.describe('Rule Manager UI', () => {
+test.describe('Rules Engine Dashboard UI', () => {
   test.beforeEach(async ({ page }) => {
     // Mock API requests
     await page.route('/api/rules', async (route) => {
@@ -42,7 +42,7 @@ test.describe('Rule Manager UI', () => {
   });
 
   test('should display existing rules', async ({ page }) => {
-    await expect(page.locator('h1')).toHaveText('Rule Manager');
+    await expect(page.locator('h1')).toHaveText('Rules Engine Dashboard');
     await expect(page.getByText('High Value Transaction')).toBeVisible();
     await expect(page.getByText('EU Region Check')).toBeVisible();
     await expect(page.getByText('payload.amount > 1000')).toBeVisible();

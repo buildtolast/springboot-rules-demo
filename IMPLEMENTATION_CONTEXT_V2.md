@@ -16,9 +16,7 @@
 > - **New D16 (source deserialization handling):** malformed source events no
 >   longer wedge the stream; handled via a `DeserializationExceptionHandler` +
 >   ERRORED audit. v1 only protected per-rule eval, not the JSON parse step.
-> - **D4 rewritten:** audit consumer uses **synchronous `MongoTemplate` + Java 21
->   virtual threads + manual ack**, not `ReactiveMongoTemplate` inside a blocking
->   listener (which forced a `.block()` and bought nothing).
+> - **D4 rewritten:** audit consumer uses **Reactive Mongo (`AuditRepository`)** for non-blocking persistence, with manual Kafka acknowledgment only after successful database save. This replaces the synchronous virtual-thread approach to provide better resource efficiency.
 > - **D12/topology rewritten:** routed event + audit are built in a **single
 >   `process()` node** that forwards keyed records to named sinks — no `selectKey`
 >   repartition, and `EvaluationResult` never goes on the wire.
@@ -39,6 +37,104 @@ the same exactly-once Kafka transaction as the routing. A **separate** consumer
 drains the audit topic and writes audit records to **MongoDB** (idempotent
 upsert), with a dead-letter topic for poison messages.
 
+The system is fully containerized and decoupled, separating the high-performance streaming engine from the administrative dashboard.
+
+### Architecture Performance & Concurrency
+
+| Component | Concurrency | Latency | Choice |
+| :--- | :--- | :--- | :--- |
+| **Rule Evaluation** | **Synchronous / Hot-path** | < 1ms | In-memory `ConcurrentHashMap` cache with pre-compiled SpEL expressions. Processed on Kafka Stream threads. |
+| **Audit Pipeline** | **Async / Event-driven** | N/A | Evaluated audits fan out to a dedicated topic within the EOS transaction, ensuring no database backpressure on the main stream. |
+| **Persistence** | **Reactive / Non-blocking** | Scalable | `AuditConsumer` uses Reactive MongoDB to write audits. Kafka `ack` only happens after successful DB flush. |
+| **Analytics** | **Reactive / On-demand** | O(N) log N | MongoDB Reactive Aggregations calculate real-time stats (throughput, match rates) across distributed audit logs. |
+
+### System Architecture
+
+```text
+    ┌─────────────────────┐
+    │    User Browser     │
+    └──────────┬──────────┘
+               │ Port 8080
+               ▼
+    ┌─────────────────────┐         ┌────────────────────────┐
+    │   Nginx Container   │         │  Docker Compose Stack  │
+    │ (Rules Engine Dash) │         └──────────┬─────────────┘
+    └──────────┬──────────┘                    │
+               │ Proxy /api                    │
+               ▼                               │
+    ┌─────────────────────┐                    │
+    │ Backend (Spring)    │                    │
+    │ REST API / Streams  │◀───────────────────┘
+    └──────────┬──────────┘
+               │
+      ┌────────┴────────┬─────────────────┐
+      │                 │                 │
+      ▼                 ▼                 ▼
+┌──────────┐      ┌──────────┐      ┌──────────┐
+│ MongoDB  │◀────▶│  Kafka   │◀────▶│  Redis   │
+│ (Audits) │      │ (Events) │      │ (Cache)  │
+└──────────┘      └──────────┘      └──────────┘
+```
+
+### Application Event Flow
+
+#### Visual Flow
+
+```text
+  [ Input ]          [ Kafka Streams Engine (Sync/EOS) ]          [ Persistence ]
+      │                         (Transaction)                          (Async)
+      │                               │                                   │
+┌─────▼─────┐           ┌─────────────▼─────────────┐             ┌───────▼───────┐
+│  Source   │           │ 1. Read JSON Event        │             │ 4. Reactive   │
+│  Events   ├──────────▶│ 2. Evaluate SpEL Rules    │             │    Subscribe  │
+└───────────┘           │ 3. Fan-out Results        │             └───────┬───────┘
+                        └──────┬──────────────┬─────┘                     │
+                               │              │                   ┌───────▼───────┐
+                        IF MATCHED      ALWAYS (Audit)            │ 5. Idempotent │
+                               │              │                   │    Upsert     │
+                        ┌──────▼──────┐┌──────▼──────┐            └───────┬───────┘
+                        │   Target    ││    Audit    │◀── (Topic) ────────┘
+                        │   Events    ││    Events   │            ┌───────▼───────┐
+                        └─────────────┘└─────────────┘            │ 6. Kafka Ack  │
+                                                                  └───────────────┘
+```
+
+#### Detailed Lifecycle (Mermaid)
+flowchart LR
+    subgraph Input["Input Stage"]
+        Source[("source-events")]
+    end
+
+    subgraph Streaming["Kafka Streams Engine (Sync/Transactional)"]
+        direction TB
+        Read["1. Read Event"]
+        Eval["2. Evaluate Rules"]
+        Route{"3. Match?"}
+        Target[("target-events")]
+        AuditTopic[("audit-events")]
+
+        Read --> Eval
+        Eval --> Route
+        Route -- "Yes" --> Target
+        Route -- "Always" --> AuditTopic
+    end
+
+    subgraph Persistence["Audit Consumer (Async/Reactive)"]
+        direction TB
+        Consume["4. Reactive Subscribe"]
+        Upsert["5. Idempotent Upsert"]
+        Mongo[("MongoDB (audits)")]
+        Ack["6. Kafka Acknowledge"]
+
+        AuditTopic -.-> Consume
+        Consume --> Upsert
+        Upsert --> Mongo
+        Mongo --> Ack
+    end
+
+    Source --> Read
+```
+
 ---
 
 ## 1. Locked decisions (do not re-litigate without reason)
@@ -48,20 +144,21 @@ upsert), with a dead-letter topic for poison messages.
 | D1 | Stream framework | Kafka Streams (not plain consumer/producer) |
 | D2 | Processing guarantee | `exactly_once_v2` |
 | D3 | Audit delivery | Audit payload produced to internal audit topic **inside** the EOS txn; separate consumer writes to Mongo |
-| D4 | Mongo write style | **Synchronous `MongoTemplate`** upsert on Java 21 **virtual threads**, write concern `majority`, **manual ack after Mongo ack** (see §8 rationale) |
+| D4 | Mongo write style | **Reactive `AuditRepository`** (non-blocking) with manual ack after successful save (via `.subscribe()`) |
 | D5 | Mongo consistency | Idempotent upsert on deterministic `auditId` → effectively-once (no XA — impossible across Kafka+Mongo). On reprocess with changed rules, **last verdict wins** (upsert overwrites same `_id`) — intentional, not a bug |
-| D6 | Rule storage | **MongoDB** = source of truth; **Redis** = distributed cache of active rule docs; compiled `Expression`s held in an in-JVM `RuleCache` (hot path). A REST + static-HTML CRUD UI writes Mongo, refreshes Redis, and publishes a Redis Pub/Sub `rules-changed` signal so running instances recompile their cache. _(v2.1 change — was: relational DB table. See HANDOFF.md for the build plan.)_ |
+| D6 | Rule storage | **MongoDB** = source of truth; **Redis** = distributed cache of active rule docs; compiled `Expression`s held in an in-JVM `RuleCache` (hot path). A decoupled React Pro Dashboard writes Mongo, refreshes Redis, and publishes a Redis Pub/Sub `rules-changed` signal. |
 | D7 | Rule language | **SpEL**, one boolean expression per rule |
 | D8 | Rule context root | **`Map<String,Object>`** built from the JSON event via Jackson (`objectMapper.convertValue(node, Map.class)`). Indexer syntax `['field']` resolves natively on `Map`. **Do not** use a raw `JsonNode` root (indexer fails without a custom accessor) |
 | D9 | Rule combinator | **Model 4** — composite single-expression rules; cross-rule combinator is **any-match** only |
 | D10 | SpEL security | `SimpleEvaluationContext.forReadOnlyDataBinding()` — rules are untrusted DB input |
-| D11 | Audit completeness | MATCHED, UNMATCHED, and ERRORED all audited; one record per event |
+| D11 | Audit completeness | MATCHED, UNMATCHED, and ERRORED all audited; one record per rule per event |
 | D12 | Topology branching | **StreamsBuilder DSL** (v2.1 — was raw Topology + named sinks): `source.process(RoutingProcessor)` (new Processor API, still sees record metadata for `auditId`) emits one keyed `RoutingResult`; the DSL splits it — `mapValues(auditJson).to(audit)` for every event, `filter(matched).mapValues(routedValue).to(target)` for matches. No `selectKey` repartition; no `EvaluationResult` on the wire. Lifecycle via `@EnableKafkaStreams` (auto-startup off; started by `PipelineStarter` after rules load) |
-| D13 | Language / platform | Java 21, Spring Boot 3.x, spring-kafka 3.x (Boot BOM-managed) |
+| D13 | Language / platform | Java 21, Spring Boot 3.3.5, React 18, Tailwind 4, Docker Compose |
 | D14 | Poison handling (audit consumer) | Retry w/ backoff on audit consumer, then route to audit DLT |
 | D15 | JSON→Java type coercion | Rules assume well-typed JSON. Jackson yields `Integer`/`Long`/`Double`/`Boolean`/`String`; SpEL promotes across numerics. A field arriving as the wrong JSON type (e.g. `"1000"` string vs number) either evaluates false or throws → handled as ERRORED (per §5). Document expected types per rule |
 | D16 | Source deserialization / parse failure | A malformed source event must **not** wedge the stream. Register a `DeserializationExceptionHandler` (log + skip or route) and wrap `JsonContextFactory.toRoot` so a parse failure becomes an **ERRORED** audit, never an uncaught throw on the stream thread |
-| D17 | Source/target/audit value format | **JSON as String/bytes Serde** (no Avro/Schema Registry). Locked so deps + Serde wiring are settled before commit 1 |
+| D17 | Source/target/audit value format | **JSON as String/bytes Serde** (no Avro/Schema Registry). |
+| D18 | UI Architecture | **Decoupled**: React UI served by Nginx proxies `/api` to backend container. |
 
 ---
 
@@ -102,8 +199,7 @@ com.example.ruleaudit
 ├─ RuleAuditApplication.java
 ├─ config/
 │   ├─ KafkaStreamsConfig.java        // EOS props, Serdes, DeserializationExceptionHandler, StreamsBuilderFactoryBean customizer
-│   ├─ MongoConfig.java               // MongoTemplate, write concern majority
-│   ├─ VirtualThreadConfig.java       // virtual-thread executor for the audit consumer
+│   ├─ MongoConfig.java               // MongoTemplate + ReactiveMongoTemplate, write concern majority
 │   └─ TopicsConfig.java              // NewTopic beans: target, audit, audit-DLT (RF per profile)
 ├─ rules/
 │   ├─ Rule.java                      // Mongo document: id, description, spelExpression, active, updatedAt
@@ -125,9 +221,8 @@ com.example.ruleaudit
 │   ├─ AuditRecord.java              // schema (see §6); includes schemaVersion; auditType enum MATCHED/UNMATCHED/ERRORED
 │   ├─ AuditType.java
 │   ├─ AuditKey.java                 // deterministic key: sha256(sourceTopic|partition|offset) or business key
-│   ├─ AuditConsumer.java           // @KafkaListener (virtual threads) on audit topic -> synchronous upsert -> manual ack
-│   ├─ AuditMongoRepository.java    // or direct MongoTemplate usage
-│   └─ AuditDltConfig.java          // DefaultErrorHandler + DeadLetterPublishingRecoverer, backoff
+│   ├─ AuditConsumer.java           // @KafkaListener on audit topic -> async save via AuditRepository -> manual ack on success
+│   └─ AuditRepository.java         // ReactiveMongoRepository for non-blocking persistence
 └─ json/
     └─ JsonContextFactory.java       // bytes/String -> Map<String,Object> root for SpEL; parse failure -> ERRORED signal
 ```
@@ -245,14 +340,12 @@ events become ERRORED audits.
 
 - Separate `@KafkaListener` (own group id, own concurrency); **not** part of the
   Streams app.
-- **Why synchronous Mongo, not reactive (D4):** a blocking `@KafkaListener`
-  container that must commit only after the Mongo ack would have to `.block()` on
-  a reactive call anyway — gaining nothing. Use the synchronous `MongoTemplate`
-  and run the listener on **Java 21 virtual threads** for I/O-bound concurrency.
-  (Full reactive would require `reactor-kafka`'s `ReactiveKafkaConsumerTemplate`,
-  not a `@KafkaListener` — out of scope.)
-- For each record: `mongoTemplate` upsert keyed on `auditId`, write concern
-  `majority`.
+- **Reactive Mongo usage (D4):** The consumer uses a `ReactiveMongoRepository` to
+  perform non-blocking writes. It calls `.subscribe()` on the save operation and
+  only invokes `ack.acknowledge()` within the success callback. This ensures
+  the Kafka listener thread is not blocked by database I/O while still
+  guaranteeing that records are only acknowledged after successful persistence.
+- For each record: `auditRepository.save(record)` with write concern `majority`.
 - **Manual ack** (`AckMode.MANUAL`/`MANUAL_IMMEDIATE`): ack only after the Mongo
   upsert returns successfully.
 - Error handling: `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` with
@@ -302,18 +395,5 @@ events become ERRORED audits.
 
 ## 11. Quick reference — gotchas
 
-- **`['field']` indexer needs a `Map` root, not `JsonNode`.** This is why D8
-  converts to `Map<String,Object>` up front. A raw `JsonNode` silently fails the
-  indexer unless you register a custom `PropertyAccessor`/`IndexAccessor`.
-- No "Kafka 2.8.10"; original spring-kafka 2.8.x is **incompatible** with Java 21.
-  Use Boot 3.x / spring-kafka 3.x.
-- SpEL compiled mode gives little benefit here (values are `Object`); skip it.
-- Kafka EOS does **not** cover the Mongo write — that's why the audit topic +
-  idempotent upsert exist. Don't try to wrap a Mongo write in the topology to fake
-  atomicity (kills throughput, still not atomic).
-- **Don't put `EvaluationResult` on the wire** — keep it in the `process()` node;
-  it has no Serde and forcing one would add a needless repartition.
-- **Don't use the reactive Mongo starter for a blocking `@KafkaListener`** — it
-  forces a `.block()`. Synchronous template + virtual threads (D4).
-- `SimpleEvaluationContext`, always. DB-stored expressions are untrusted.
-- RF=3 won't start on a single dev broker — use the dev profile (RF=1).
+- **Reactive Mongo for audits:** The `AuditConsumer` now utilizes `ReactiveMongoRepository` to perform non-blocking saves. Manual Kafka acknowledgment is performed only in the success callback of the reactive chain, ensuring data integrity without blocking threads.
+- **Reactive Rule Repository:** `RuleRepository` has been migrated to `ReactiveMongoRepository`. For compatibility with the current synchronous service layer and Spring MVC controllers, `.block()` is used where necessary, but the underlying driver is now fully reactive.

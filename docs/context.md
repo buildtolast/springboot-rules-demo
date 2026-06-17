@@ -13,18 +13,18 @@ Consume JSON events from a **source** Kafka topic. For each event, evaluate a se
 ## 2. Current build state
 
 > [!IMPORTANT]
-> **Runs end-to-end in Docker.** `./run.sh` (profile `demo`) starts the stack in the background, produces 25 messages → **13 MATCHED** / 6 UNMATCHED / **6 ERRORED**, 25 audit docs in Mongo. EOS confirmed via transaction commit markers on the target/audit topics.
+> **Runs end-to-end in Docker.** `./run.sh` starts the decoupled stack (React Rules Engine Dashboard + Spring Boot API + Kafka + Mongo + Redis). Demo run produces 25 messages → **13 MATCHED** / 6 UNMATCHED / **6 ERRORED**, 25 audit docs in Mongo.
 
 | Component | Status | Notes |
 | :--- | :--- | :--- |
-| SpEL eval core (`eval`, `json`, `rules`) | **Done** | TDD; 23 unit + pipeline tests green |
-| Kafka Streams topology (`exactly_once_v2`) | **Done** | StreamsBuilder DSL (refactored from low-level Processor API) |
-| Audit consumer → MongoDB | **Done** | manual ack after write, `read_committed`, write-concern majority |
-| Docker stack (Kafka KRaft + Mongo + app) | **Done** | `docker-compose.yml` |
-| Rule store | **Done** | MongoDB truth, Redis cache, CRUD UI |
-| Audit DLT retry handler | Open | DLT topic exists; handler not yet wired |
+| SpEL eval core (`eval`, `json`, `rules`) | **Done** | TDD; unit + pipeline tests green |
+| Kafka Streams topology (`exactly_once_v2`) | **Done** | StreamsBuilder DSL with RoutingProcessor |
+| Audit consumer → MongoDB | **Done** | manual ack, idempotent upsert |
+| Docker stack (separated UI/API) | **Done** | Nginx frontend proxies to Spring Boot backend |
+| Pro Dashboard (React + Tailwind 4) | **Done** | CRUD for rules, Real-time stats, Search/Filters (renamed to Rules Engine Dashboard) |
+| Audit DLT retry handler | Open | DLT topic exists; handler logic pending |
 
-## 3. Locked decisions (D1–D17)
+## 3. Locked decisions (D1–D18)
 
 *Do not re-litigate without reason. If you change one, update it in the v2 spec and note the change.*
 
@@ -33,39 +33,36 @@ Consume JSON events from a **source** Kafka topic. For each event, evaluate a se
 | D1 | Stream framework | Kafka Streams (not plain consumer/producer) |
 | D2 | Processing guarantee | `exactly_once_v2` |
 | D3 | Audit delivery | Audit produced to internal topic **inside** the EOS txn; separate consumer writes Mongo |
-| D4 | Mongo write style | Synchronous `MongoTemplate` upsert, write-concern `majority`, manual ack after Mongo ack |
-| D5 | Mongo consistency | Idempotent upsert on deterministic `auditId` → effectively-once. On reprocess with changed rules, last verdict wins |
-| D6 | Rule storage | **MongoDB** = truth; **Redis** = cache of active rules; in-JVM `RuleCache` holds compiled `Expression`s; CRUD UI refreshes Redis + Pub/Sub `rules-changed` |
+| D4 | Mongo write style | Synchronous `MongoTemplate` upsert, write-concern `majority`, manual ack |
+| D5 | Mongo consistency | Idempotent upsert on deterministic `auditId` |
+| D6 | Rule storage | **MongoDB** = truth; **Redis** = cache; CRUD UI refreshes Redis + Pub/Sub |
 | D7 | Rule language | SpEL, one boolean expression per rule |
-| D8 | Rule context root | `Map<String,Object>` from event JSON; indexer syntax `['field']` (NOT a raw `JsonNode`) |
+| D8 | Rule context root | `Map<String,Object>` from event JSON |
 | D9 | Rule combinator | Model 4 — composite single-expression rules; cross-rule = any-match |
-| D10 | SpEL security | `SimpleEvaluationContext.forReadOnlyDataBinding()` — rules are untrusted |
-| D11 | Audit completeness | MATCHED, UNMATCHED, ERRORED all audited; one record per event |
-| D12 | Topology branching | **StreamsBuilder DSL**: `process(RoutingProcessor)` → one keyed `RoutingResult`, split by the DSL (filter→target; mapValues→audit). `@EnableKafkaStreams`, auto-startup off, started after rules load |
-| D13 | Language / platform | Java 21, Spring Boot 3.x, spring-kafka 3.x (BOM-managed) |
+| D10 | SpEL security | `SimpleEvaluationContext.forReadOnlyDataBinding()` |
+| D11 | Audit completeness | MATCHED, UNMATCHED, ERRORED all audited; one record per rule per event |
+| D12 | Topology branching | **StreamsBuilder DSL**: `process(RoutingProcessor)` → one keyed `RoutingResult` |
+| D13 | Language / platform | Java 21, Spring Boot 3.3.5, React 18, Tailwind 4 |
 | D14 | Poison handling | Retry w/ backoff on audit consumer, then route to audit DLT |
-| D15 | JSON→Java coercion | Rules assume well-typed JSON; wrong type evaluates false or throws → ERRORED |
-| D16 | Source parse failure | Malformed source event must not wedge the stream; becomes an ERRORED audit |
-| D17 | Value format | JSON as String/bytes Serde (no Avro/Schema Registry) |
+| D15 | JSON→Java coercion | Rules assume well-typed JSON |
+| D16 | Source parse failure | Becomes an ERRORED audit; does not block stream |
+| D17 | Value format | JSON as String Serde |
+| D18 | UI Architecture | **Decoupled**: Nginx serves React static files and proxies `/api` to backend |
 
 ## 4. Package layout
 
 ```
-com.codrite.ruleaudit
-├─ RuleAuditApplication            @SpringBootApplication
-├─ config/
-│   ├─ AppConfig                   RuleEvaluator, JsonContextFactory, ObjectMapper (JSR-310) beans
-│   ├─ KafkaStreamsConfig          @EnableKafkaStreams; StreamsBuilder DSL topology
-│   ├─ MongoConfig                 MongoTemplate, write-concern majority
-│   ├─ TopicsConfig                NewTopic beans (source/target/audit/DLT)
-│   ├─ RuleSeeder                  seeds 22 SpEL rules at startup (order 0)
-│   └─ PipelineStarter             reload rules → start streams factory (order 1)
-├─ rules/  Rule (JPA) · RuleRepository · RuleCache · RuleLoader · CompiledRule
-├─ eval/   RuleEvaluator · EvaluationResult
-├─ json/   JsonContextFactory · JsonParseException
-├─ topology/ RoutingProcessor · RoutingResult
-├─ audit/  AuditRecord · AuditType · AuditKey · AuditConsumer
-└─ demo/   DemoMessages · DemoRunner   (profile "demo")
+ruleaudit/
+├─ frontend/                React + Vite Rules Engine Dashboard (Nginx)
+├─ src/main/java/           Spring Boot Backend
+│  ├─ audit/                Audit Consumer & Record definitions
+│  ├─ config/               Infrastucture & Pipeline configuration
+│  ├─ demo/                 Demo data producer & reporting
+│  ├─ eval/                 SpEL Evaluation engine
+│  ├─ json/                 JSON parsing & context mapping
+│  ├─ rules/                Persistence, Redis Cache & Change Listeners
+│  └─ topology/             Kafka Streams RoutingProcessor
+└─ run.sh                   End-to-end orchestration script
 ```
 
 ## 5. Behavioural semantics

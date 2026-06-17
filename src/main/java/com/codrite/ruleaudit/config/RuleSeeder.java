@@ -1,9 +1,8 @@
 package com.codrite.ruleaudit.config;
 
 import com.codrite.ruleaudit.rules.Rule;
-import com.codrite.ruleaudit.rules.RuleRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.codrite.ruleaudit.rules.RuleService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.core.annotation.Order;
@@ -11,13 +10,23 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** Seeds 25 active SpEL rules into the relational store on first startup. */
+/**
+ * Seeds the database with a set of default rules on the first application startup.
+ * <p>
+ * This is particularly useful for demonstrations and testing environments 
+ * to ensure there is immediate data to process.
+ * <p>
+ * Runs with {@code @Order(0)} to ensure rules are available before 
+ * {@link PipelineStarter} attempts to load them.
+ */
+@Slf4j
 @Component
 @Order(0)
 public class RuleSeeder implements ApplicationRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(RuleSeeder.class);
-
+    /**
+     * Initial rule set definitions: [Description, SpEL Expression].
+     */
     private static final List<String[]> RULES = List.of(
             new String[]{"amount over 1000", "['amount'] > 1000"},
             new String[]{"amount over 5000", "['amount'] > 5000"},
@@ -43,20 +52,27 @@ public class RuleSeeder implements ApplicationRunner {
             new String[]{"tiny unflagged", "['flagged'] == false and ['amount'] < 50"}
     );
 
-    private final RuleRepository repository;
+    private final RuleService service;
 
-    public RuleSeeder(RuleRepository repository) {
-        this.repository = repository;
+    public RuleSeeder(RuleService service) {
+        this.service = service;
     }
 
+    /**
+     * Executes the seeding logic.
+     * @param args Application arguments.
+     */
     @Override
     public void run(ApplicationArguments args) {
-        if (repository.count() > 0) {
-            log.info("Rule table already populated ({} rows); skipping seed", repository.count());
+        // Check if database is empty to avoid re-seeding on every restart
+        if (!service.getAllRules().isEmpty()) {
+            log.info("Rule table already populated; skipping seed");
             return;
         }
+        
+        // Save all default rules as active
         for (String[] r : RULES) {
-            repository.save(new Rule(r[0], r[1], true));
+            service.saveRule(new Rule(r[0], r[1], true));
         }
         log.info("Seeded {} active rules", RULES.size());
     }

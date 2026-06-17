@@ -21,9 +21,10 @@ class RuleEvaluatorTest {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isEqualTo(AuditType.MATCHED);
-        Assertions.assertThat(result.matchedRuleIds()).containsExactly("r1");
-        Assertions.assertThat(result.evaluatedRuleIds()).containsExactly("r1");
-        Assertions.assertThat(result.errors()).isEmpty();
+        Assertions.assertThat(result.ruleResults()).hasSize(1);
+        Assertions.assertThat(result.ruleResults().get(0).ruleId()).isEqualTo("r1");
+        Assertions.assertThat(result.ruleResults().get(0).type()).isEqualTo(AuditType.MATCHED);
+        Assertions.assertThat(result.ruleResults().get(0).reason()).isNull();
     }
 
     @Test
@@ -35,9 +36,13 @@ class RuleEvaluatorTest {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isEqualTo(AuditType.UNMATCHED);
-        Assertions.assertThat(result.matchedRuleIds()).isEmpty();
-        Assertions.assertThat(result.evaluatedRuleIds()).containsExactly("r1");
-        Assertions.assertThat(result.errors()).isEmpty();
+        Assertions.assertThat(result.ruleResults()).hasSize(1);
+        Assertions.assertThat(result.ruleResults().get(0).ruleId()).isEqualTo("r1");
+        Assertions.assertThat(result.ruleResults().get(0).type()).isEqualTo(AuditType.UNMATCHED);
+        Assertions.assertThat(result.ruleResults().get(0).reason())
+                .contains("Condition not met")
+                .contains("['amount'] > 1000")
+                .contains("amount=10");
     }
 
     @Test
@@ -50,9 +55,8 @@ class RuleEvaluatorTest {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isEqualTo(AuditType.MATCHED);
-        Assertions.assertThat(result.matchedRuleIds()).containsExactly("r1");
-        Assertions.assertThat(result.evaluatedRuleIds()).containsExactly("r1", "r2");
-        Assertions.assertThat(result.errors()).containsKey("r2");
+        Assertions.assertThat(result.ruleResults()).extracting("ruleId").containsExactly("r1", "r2");
+        Assertions.assertThat(result.ruleResults()).extracting("type").containsExactly(AuditType.MATCHED, AuditType.ERRORED);
     }
 
     @Test
@@ -65,9 +69,7 @@ class RuleEvaluatorTest {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isEqualTo(AuditType.ERRORED);
-        Assertions.assertThat(result.matchedRuleIds()).isEmpty();
-        Assertions.assertThat(result.evaluatedRuleIds()).containsExactly("r1", "r2");
-        Assertions.assertThat(result.errors()).containsKey("r2");
+        Assertions.assertThat(result.ruleResults()).extracting("type").containsExactly(AuditType.UNMATCHED, AuditType.ERRORED);
     }
 
     @Test
@@ -78,9 +80,7 @@ class RuleEvaluatorTest {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isEqualTo(AuditType.UNMATCHED);
-        Assertions.assertThat(result.matchedRuleIds()).isEmpty();
-        Assertions.assertThat(result.evaluatedRuleIds()).isEmpty();
-        Assertions.assertThat(result.errors()).isEmpty();
+        Assertions.assertThat(result.ruleResults()).isEmpty();
     }
 
     @Test
@@ -92,7 +92,7 @@ class RuleEvaluatorTest {
         var result = evaluator.evaluate(root, rules);
 
         Assertions.assertThat(result.verdict()).isNotEqualTo(AuditType.MATCHED);
-        Assertions.assertThat(result.errors()).containsKey("r1");
+        Assertions.assertThat(result.ruleResults().get(0).type()).isEqualTo(AuditType.ERRORED);
     }
 
     @Test
