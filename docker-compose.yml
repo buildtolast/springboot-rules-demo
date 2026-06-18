@@ -215,7 +215,7 @@ services:
       replicas: ${APP_REPLICAS:-10}
       resources:
         limits:
-          memory: ${APP_MEM_LIMIT:-1G}
+          memory: ${APP_MEM_LIMIT:-2G}
     ports:
       - "${APP_PORT:-8081}"
     extra_hosts:
