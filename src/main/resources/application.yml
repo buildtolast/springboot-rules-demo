@@ -39,6 +39,11 @@ spring:
       properties:
         # EOS: only consume records from committed Streams transactions
         isolation.level: read_committed
+        # Batch sizing for the audit writer: accumulate a chunk per poll so each
+        # MongoDB bulkWrite amortises one w:majority round-trip over many records.
+        max.poll.records: 500
+        fetch.min.bytes: 1048576    # wait for ~1 MiB before returning a fetch
+        fetch.max.wait.ms: 200      # ...but never block a poll longer than 200ms
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
