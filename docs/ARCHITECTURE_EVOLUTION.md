@@ -179,6 +179,10 @@ flowchart TB
 
 ## V0 vs Current
 
+The same pipeline, re-shaped at three points: the Mongo write moves off the Kafka thread behind a topic, per-record writes become one bulk write per batch, and the standalone node becomes a replica set.
+
+![Before and after the scaling design: V0 writes each audit synchronously to a standalone MongoDB under majority write concern (~111ms/record); the scaled design forwards audits to a topic and a batch consumer bulk-writes 500 records per majority wait to a replica set (~0.22ms/record).](scaling-before-after.svg)
+
 | Feature | V0 (prototype) | Current (cluster) |
 | :--- | :--- | :--- |
 | **Kafka** | 1 node (RF=1, ISR=1) | 3-node KRaft (RF=3, min ISR=2) |

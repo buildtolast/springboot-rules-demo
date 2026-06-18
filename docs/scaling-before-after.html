@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scaling the audit write path — before and after</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.34.0/iconfont/tabler-icons.min.css">
+<style>
+  :root {
+    --text-primary:#2C2C2A; --text-secondary:#5F5E5A; --text-tertiary:#888780;
+    --page:#FBFAF7; --bg-primary:#FFFFFF; --bg-secondary:#F4F2EC;
+    --border:rgba(0,0,0,0.14);
+    --danger-bg:#FCEBEB; --danger-text:#A32D2D; --danger-border:#E24B4A;
+    --success-bg:#E1F5EE; --success-text:#0F6E56; --success-border:#1D9E75;
+    --r-md:8px; --r-lg:12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --text-primary:#ECEAE3; --text-secondary:#B4B2A9; --text-tertiary:#888780;
+      --page:#1A1A18; --bg-primary:#201F1B; --bg-secondary:#2C2C2A;
+      --border:rgba(255,255,255,0.16);
+      --danger-bg:#3A1F1F; --danger-text:#F09595; --danger-border:#A32D2D;
+      --success-bg:#0C3A30; --success-text:#5DCAA5; --success-border:#0F6E56;
+    }
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--page); color:var(--text-primary);
+    font-family:-apple-system,system-ui,'Segoe UI',Helvetica,Arial,sans-serif;
+    line-height:1.5; padding:2rem 1rem;
+  }
+  .wrap { max-width:780px; margin:0 auto; display:flex; flex-direction:column; gap:1.25rem; }
+  .panels { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; align-items:start; }
+  .panel { background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--r-lg); padding:1rem; display:flex; flex-direction:column; gap:.55rem; }
+  .node { background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--r-md); padding:.5rem .75rem; }
+  .node b { font-weight:500; }
+  .node small, .sub { font-size:13px; color:var(--text-secondary); }
+  .arrow { text-align:center; color:var(--text-tertiary); line-height:1; font-size:15px; }
+  .pill { font-size:13px; font-weight:500; padding:.2rem .6rem; border-radius:999px; }
+  .stat { flex:1; border-radius:var(--r-md); padding:.5rem .6rem; }
+  .stat .big { font-size:20px; font-weight:500; }
+  .stat small { font-size:12px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:.75rem; }
+  .card { background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--r-md); padding:.75rem .85rem; }
+  .eyebrow { font-size:13px; color:var(--text-secondary); }
+  .delta { font-size:15px; margin:.2rem 0 .15rem; }
+  .was { color:var(--text-tertiary); }
+  .now { color:var(--text-primary); font-weight:500; }
+  h1 { font-size:18px; font-weight:500; margin:.2rem 0 .4rem; }
+  .note { font-size:13px; color:var(--text-secondary); padding-left:.6rem; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h2 class="sr-only">Scaling the audit write path: V0 wrote each of the roughly 10 million audits per run synchronously to a standalone MongoDB, blocking the Kafka thread about 111 milliseconds per record for majority replication and topping out near 9 audits per second. The redesign forwards audits to a Kafka topic so the processing thread never waits on the database; a separate consumer drains 500 records per poll and writes them in one bulk write, paying the majority wait once per batch and reaching about 0.22 milliseconds per record and 4,600 audits per second on a three-node replica set.</h2>
+
+  <div>
+    <div class="eyebrow">Architecture evolution</div>
+    <h1>Scaling the audit write path</h1>
+    <div class="sub" style="font-size:15px;">Each run fans out <span style="color:var(--text-primary);">100k events &times; ~100 rules &approx; 10M audit writes</span>. In V0 every write blocked the Kafka processing thread waiting for majority replication. The redesign moves persistence off that thread and batches it, then scales out across a cluster for parallelism and high availability.</div>
+  </div>
+
+  <div class="panels">
+
+    <div class="panel">
+      <div style="display:flex; align-items:center; gap:.5rem;">
+        <span class="pill" style="background:var(--danger-bg); color:var(--danger-text);">Before &mdash; V0</span>
+        <span class="sub">synchronous per-record writes</span>
+      </div>
+      <div class="node"><b><i class="ti ti-inbox"></i> source-events</b><div><small>input topic</small></div></div>
+      <div class="arrow">&darr;</div>
+      <div class="node"><b><i class="ti ti-cpu"></i> App instance</b><div><small>evaluate + save each record</small></div></div>
+      <div class="arrow" style="color:var(--danger-text); font-size:13px;">&darr;&nbsp; blocks ~111ms each</div>
+      <div class="node"><b><i class="ti ti-database"></i> MongoDB</b><div><small>standalone, w:majority</small></div></div>
+      <div class="note" style="border-left:2px solid var(--danger-border);">The thread waits for a majority of replicas to ack <span style="color:var(--text-primary);">every single record</span>. The DB work is &lt;1ms &mdash; the ~111ms is pure replication wait.</div>
+      <div style="display:flex; gap:.5rem;">
+        <div class="stat" style="background:var(--danger-bg); color:var(--danger-text);"><div class="big">~111 ms</div><small>per record</small></div>
+        <div class="stat" style="background:var(--danger-bg); color:var(--danger-text);"><div class="big">&approx;9 / sec</div><small>one writer</small></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex; align-items:center; gap:.5rem;">
+        <span class="pill" style="background:var(--success-bg); color:var(--success-text);">After &mdash; scaled</span>
+        <span class="sub">topic-decoupled batch bulk writes</span>
+      </div>
+      <div class="node"><b><i class="ti ti-inbox"></i> source-events</b><div><small>input topic</small></div></div>
+      <div class="arrow">&darr;</div>
+      <div class="node"><b><i class="ti ti-bolt"></i> Kafka Streams</b><div><small>evaluate + fan-out</small></div></div>
+      <div class="arrow" style="color:var(--success-text); font-size:13px;">&darr;&nbsp; forward, no DB wait</div>
+      <div class="node"><b><i class="ti ti-stack-2"></i> audit-events &rarr; audit-writer</b><div><small>topic buffer, batch 500 / poll</small></div></div>
+      <div class="arrow" style="color:var(--success-text); font-size:13px;">&darr;&nbsp; one bulkWrite / batch</div>
+      <div class="node"><b><i class="ti ti-database"></i> MongoDB rs0 (&times;3)</b><div><small>replica set, one majority wait</small></div></div>
+      <div class="note" style="border-left:2px solid var(--success-border);">Streams just hands audits to a topic and moves on. One bulk write covers 500 records, so the majority wait is paid <span style="color:var(--text-primary);">once per batch</span>, not per record.</div>
+      <div style="display:flex; gap:.5rem;">
+        <div class="stat" style="background:var(--success-bg); color:var(--success-text);"><div class="big">~0.22 ms</div><small>per record</small></div>
+        <div class="stat" style="background:var(--success-bg); color:var(--success-text);"><div class="big">&approx;4,600 / sec</div><small>per consumer thread</small></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div>
+    <div class="eyebrow" style="margin-bottom:.5rem;">Infrastructure scale-out (V0 &rarr; cluster)</div>
+    <div class="cards">
+      <div class="card">
+        <div style="font-weight:500;"><i class="ti ti-broadcast"></i> Kafka</div>
+        <div class="delta"><span class="was">1 node</span> &rarr; <span class="now">3-node KRaft</span></div>
+        <div class="sub">RF=3, min ISR=2 &mdash; survives one broker loss</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:500;"><i class="ti ti-database"></i> MongoDB</div>
+        <div class="delta"><span class="was">standalone</span> &rarr; <span class="now">3-node rs0</span></div>
+        <div class="sub">replica set &mdash; failover + majority durability</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:500;"><i class="ti ti-stack-2"></i> App instances</div>
+        <div class="delta"><span class="was">1</span> &rarr; <span class="now">10</span></div>
+        <div class="sub">share the audit-writer consumer group</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:500;"><i class="ti ti-columns"></i> Partitions</div>
+        <div class="delta"><span class="was">1</span> &rarr; <span class="now">20</span></div>
+        <div class="sub">parallelism ceiling for streams + consumers</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="eyebrow" style="margin-bottom:.5rem;">What changed and why</div>
+    <div class="cards">
+      <div class="card">
+        <div style="font-weight:500; margin-bottom:.2rem;"><i class="ti ti-plug-connected"></i> Decoupled persistence</div>
+        <div class="sub">The Streams thread never touches Mongo &mdash; it hands audits to the audit-events topic, so DB latency can't stall evaluation.</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:500; margin-bottom:.2rem;"><i class="ti ti-layers-intersect"></i> Batch bulk writes</div>
+        <div class="sub">The audit-writer persists 500 records in one unordered bulkWrite, amortizing a single w:majority wait across the batch.</div>
+      </div>
+      <div class="card">
+        <div style="font-weight:500; margin-bottom:.2rem;"><i class="ti ti-server-2"></i> Replicated storage</div>
+        <div class="sub">A 3-node replica set replaces the single node for failover; idempotent _id upserts keep batch retries safe.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:var(--success-bg); border-radius:var(--r-md); padding:.75rem .9rem; font-size:14px; color:var(--success-text);">
+    <i class="ti ti-trending-up"></i> &nbsp;Net effect: ~112ms &rarr; ~0.22ms per record (about 500&times; less write-concern wait). Throughput is now bounded by partitions and consumers, not by a blocking database call.
+  </div>
+
+</div>
+</body>
+</html>

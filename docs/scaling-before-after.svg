@@ -1,0 +1,73 @@
+<svg width="680" viewBox="0 0 680 432" role="img" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, system-ui, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Before and after the scaling design</title>
+  <desc>Before: the app evaluates rules and writes each audit to a standalone MongoDB synchronously under majority write concern, blocking the processing thread. After: Kafka Streams forwards audits to a topic, a separate batch consumer writes 500 records per bulkWrite to a MongoDB replica set, paying one majority wait per batch.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10" fill="none" stroke="#5F5E5A" stroke-width="1.5"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="680" height="432" rx="12" fill="#FBFAF7"/>
+
+  <text x="40" y="26" font-size="14" font-weight="500" fill="#2C2C2A">Before — V0: synchronous per-record writes</text>
+
+  <rect x="40" y="46" width="140" height="54" rx="8" fill="#F1EFE8" stroke="#5F5E5A"/>
+  <text x="110" y="70" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">source-events</text>
+  <text x="110" y="88" font-size="12" fill="#5F5E5A" text-anchor="middle">input topic</text>
+
+  <line x1="180" y1="73" x2="200" y2="73" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <rect x="200" y="46" width="190" height="54" rx="8" fill="#FAECE7" stroke="#993C1D"/>
+  <text x="295" y="70" font-size="14" font-weight="500" fill="#4A1B0C" text-anchor="middle">App instance</text>
+  <text x="295" y="88" font-size="12" fill="#993C1D" text-anchor="middle">evaluate + save per record</text>
+
+  <text x="430" y="68" font-size="12" fill="#993C1D" text-anchor="middle">~111ms each</text>
+  <line x1="390" y1="73" x2="470" y2="73" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <rect x="470" y="46" width="150" height="54" rx="8" fill="#F1EFE8" stroke="#5F5E5A"/>
+  <text x="545" y="70" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">MongoDB</text>
+  <text x="545" y="88" font-size="12" fill="#5F5E5A" text-anchor="middle">standalone (1 node)</text>
+
+  <text x="40" y="128" font-size="12" fill="#5F5E5A">Majority ack on every record · one writer ≈ 9 audits/sec · dashboard scans raw audits</text>
+
+  <line x1="40" y1="150" x2="640" y2="150" stroke="#D3D1C7" stroke-width="1"/>
+
+  <text x="40" y="174" font-size="14" font-weight="500" fill="#2C2C2A">After — scaled: topic-decoupled batch bulk writes</text>
+
+  <rect x="40" y="192" width="140" height="54" rx="8" fill="#F1EFE8" stroke="#5F5E5A"/>
+  <text x="110" y="216" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">source-events</text>
+  <text x="110" y="234" font-size="12" fill="#5F5E5A" text-anchor="middle">input topic</text>
+
+  <line x1="180" y1="219" x2="200" y2="219" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <rect x="200" y="192" width="190" height="54" rx="8" fill="#E1F5EE" stroke="#0F6E56"/>
+  <text x="295" y="216" font-size="14" font-weight="500" fill="#04342C" text-anchor="middle">Kafka Streams</text>
+  <text x="295" y="234" font-size="12" fill="#0F6E56" text-anchor="middle">evaluate + fan-out</text>
+
+  <text x="410" y="212" font-size="12" fill="#5F5E5A" text-anchor="middle">forward</text>
+  <line x1="390" y1="219" x2="430" y2="219" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <rect x="430" y="192" width="150" height="54" rx="8" fill="#F1EFE8" stroke="#5F5E5A"/>
+  <text x="505" y="216" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">audit-events</text>
+  <text x="505" y="234" font-size="12" fill="#5F5E5A" text-anchor="middle">topic (buffer)</text>
+
+  <line x1="505" y1="246" x2="505" y2="288" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <rect x="430" y="288" width="150" height="54" rx="8" fill="#E1F5EE" stroke="#0F6E56"/>
+  <text x="505" y="312" font-size="14" font-weight="500" fill="#04342C" text-anchor="middle">audit-writer</text>
+  <text x="505" y="330" font-size="12" fill="#0F6E56" text-anchor="middle">batch 500 / poll</text>
+
+  <text x="410" y="308" font-size="12" fill="#5F5E5A" text-anchor="middle">w:majority once</text>
+  <line x1="430" y1="315" x2="390" y2="315" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <rect x="200" y="288" width="190" height="54" rx="8" fill="#F1EFE8" stroke="#5F5E5A"/>
+  <text x="295" y="312" font-size="14" font-weight="500" fill="#2C2C2A" text-anchor="middle">MongoDB rs0 (×3)</text>
+  <text x="295" y="330" font-size="12" fill="#5F5E5A" text-anchor="middle">one bulkWrite / batch</text>
+
+  <text x="40" y="370" font-size="12" fill="#5F5E5A">One majority wait per 500-doc batch · ~0.22 ms/record · ~4,600 audits/sec</text>
+  <text x="40" y="388" font-size="12" fill="#5F5E5A">RollupService $merge → rollups; dashboard reads pre-aggregated buckets</text>
+
+  <rect x="40" y="406" width="14" height="14" rx="3" fill="#FAECE7" stroke="#993C1D"/>
+  <text x="62" y="417" font-size="12" fill="#5F5E5A">before / blocking path</text>
+  <rect x="240" y="406" width="14" height="14" rx="3" fill="#E1F5EE" stroke="#0F6E56"/>
+  <text x="262" y="417" font-size="12" fill="#5F5E5A">after / scaled path</text>
+</svg>
