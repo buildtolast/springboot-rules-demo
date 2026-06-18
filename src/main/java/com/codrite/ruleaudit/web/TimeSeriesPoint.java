@@ -13,6 +13,7 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TimeSeriesPoint {
+    private String ruleId;
     private Instant timestamp;
     private long matched;
     private long unmatched;

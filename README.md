@@ -228,6 +228,7 @@ chmod +x run.sh
 | Action | Command |
 | :--- | :--- |
 | **View Logs** | `./run.sh --logs` (or `docker compose logs -f`) |
+| **3-Node Cluster** | `./run.sh --cluster` |
 | **Change UI Port** | `UI_PORT=9090 ./run.sh` |
 | **Change API Port** | `APP_PORT=8082 ./run.sh` |
 | **Change Kafka Port** | `KAFKA_PORT=9094 ./run.sh` |

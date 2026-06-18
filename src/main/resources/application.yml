@@ -6,15 +6,16 @@ spring:
     name: springboot-rules-demo
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb://localhost:27017/ruleaudit}
+      uri: ${MONGODB_URI:mongodb://host.docker.internal:27017/ruleaudit}
+      auto-index-creation: true
     redis:
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:host.docker.internal}
       port: ${REDIS_PORT:6379}
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:9092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:host.docker.internal:9092}
     streams:
       application-id: rule-audit-streams
-      replication-factor: 1
+      replication-factor: ${APP_REPLICATION_FACTOR:1}
       # PipelineStarter starts streams after rules are loaded
       auto-startup: false
       properties:
@@ -24,6 +25,10 @@ spring:
         commit.interval.ms: 1000
         num.stream.threads: 1
         # single-broker EOS: internal/txn topics must tolerate RF=1
+        # When running in cluster, use standard replication factors
+        internal.topic.replication.factor: ${APP_REPLICATION_FACTOR:1}
+        transaction.state.log.replication.factor: ${APP_REPLICATION_FACTOR:1}
+        transaction.state.log.min.isr: 1
         default.deserialization.exception.handler: org.apache.kafka.streams.errors.LogAndContinueExceptionHandler
     consumer:
       group-id: audit-writer
@@ -46,12 +51,19 @@ app:
     target: target-events
     audit: audit-events
     audit-dlt: audit-events.DLT
-  partitions: 1
-  replication-factor: 1
+  partitions: 20
+  replication-factor: ${APP_REPLICATION_FACTOR:1}
   # demo runner (active only under the 'demo' profile)
   demo:
     message-count: 25
     settle-millis: 8000
+  # analytics rollups (pre-aggregated so the dashboard never scans raw audits)
+  analytics:
+    rollup:
+      enabled: true
+      interval-ms: 60000      # how often recent buckets are recomputed
+      recompute-hours: 3      # trailing window recomputed each run
+      backfill-hours: 26      # one-time window built on startup
 
 logging:
   level:

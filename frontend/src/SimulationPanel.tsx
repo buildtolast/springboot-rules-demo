@@ -23,7 +23,7 @@ const SimulationPanel: React.FC = () => {
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 2000);
+    const interval = setInterval(fetchStats, 30000); // 30s to ease load on the backend/DB
     return () => clearInterval(interval);
   }, []);
 

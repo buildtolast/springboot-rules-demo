@@ -39,7 +39,7 @@ public class AnalyticsController {
         Instant start = from != null ? from : Instant.now().minus(24, ChronoUnit.HOURS);
         Instant end = to != null ? to : Instant.now();
         
-        log.info("Fetching analytics from {} to {}", start, end);
+        log.debug("Fetching analytics from {} to {}", start, end);
         return analyticsService.getStats(start, end);
     }
 }

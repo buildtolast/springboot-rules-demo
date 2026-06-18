@@ -9,6 +9,7 @@ public record AnalyticsStats(
     long totalMessages,
     long totalEvaluations,
     List<RuleStats> ruleStats,
+    List<TimeSeriesPoint> timeSeries,
     long avgParseTimeNano,
     long avgEvalTimeNano,
     long avgTotalTimeNano

@@ -2,6 +2,9 @@ package com.codrite.ruleaudit.audit;
 
 import java.time.Instant;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 /**
@@ -22,9 +25,18 @@ import org.springframework.data.mongodb.core.mapping.Document;
  * @param timestamp         Wall-clock time of processing.
  */
 @Document(collection = "audits")
+@CompoundIndexes({
+    @CompoundIndex(name = "ts_rule", def = "{'timestamp': 1, 'ruleId': 1}"),
+    @CompoundIndex(name = "topic_part_off", def = "{'sourceTopic': 1, 'partition': 1, 'offset': 1}"),
+    // Covers the analytics "messages processed" aggregation: a timestamp-range
+    // match followed by a group on (sourceTopic, partition, offset). With all
+    // four fields in one index the distinct-message count runs index-only and
+    // avoids fetching every document in the range.
+    @CompoundIndex(name = "ts_msg", def = "{'timestamp': 1, 'sourceTopic': 1, 'partition': 1, 'offset': 1}")
+})
 public record AuditRecord(
         @Id String auditId,
-        String ruleId,
+        @Indexed String ruleId,
         int schemaVersion,
         AuditType auditType,
         String reason,
@@ -33,7 +45,7 @@ public record AuditRecord(
         String sourceTopic,
         int partition,
         long offset,
-        Instant timestamp,
+        @Indexed Instant timestamp,
         long parseTimeNano,
         long evalTimeNano,
         long totalTimeNano) {}

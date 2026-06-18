@@ -13,10 +13,19 @@ export interface RuleStats {
   errored: number;
 }
 
+export interface TimeSeriesPoint {
+  ruleId: string;
+  timestamp: string;
+  matched: number;
+  unmatched: number;
+  errored: number;
+}
+
 export interface AnalyticsStats {
   totalMessages: number;
   totalEvaluations: number;
   ruleStats: RuleStats[];
+  timeSeries: TimeSeriesPoint[];
   avgParseTimeNano: number;
   avgEvalTimeNano: number;
   avgTotalTimeNano: number;
