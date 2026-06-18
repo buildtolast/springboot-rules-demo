@@ -37,17 +37,20 @@ public class DemoRunner implements ApplicationRunner {
     private final String sourceTopic;
     private final int messageCount;
     private final long settleMillis;
+    private final long publishDelayMs;
 
     public DemoRunner(KafkaTemplate<String, String> kafkaTemplate,
                       MongoTemplate mongoTemplate,
                       @Value("${app.topics.source}") String sourceTopic,
                       @Value("${app.demo.message-count}") int messageCount,
-                      @Value("${app.demo.settle-millis}") long settleMillis) {
+                      @Value("${app.demo.settle-millis}") long settleMillis,
+                      @Value("${app.simulation.publish-delay-ms:5}") long publishDelayMs) {
         this.kafkaTemplate = kafkaTemplate;
         this.mongoTemplate = mongoTemplate;
         this.sourceTopic = sourceTopic;
         this.messageCount = messageCount;
         this.settleMillis = settleMillis;
+        this.publishDelayMs = publishDelayMs;
     }
 
     /**
@@ -60,9 +63,12 @@ public class DemoRunner implements ApplicationRunner {
         // Step 1: Generate synthetic messages using the helper
         List<String> messages = DemoMessages.generate(messageCount);
         
-        // Step 2: Send all messages to the source topic
-        for (String m : messages) {
-            kafkaTemplate.send(sourceTopic, m);
+        // Step 2: Send messages to the source topic, paced so they are not bursted
+        for (int i = 0; i < messages.size(); i++) {
+            kafkaTemplate.send(sourceTopic, messages.get(i));
+            if (publishDelayMs > 0 && i < messages.size() - 1) {
+                Thread.sleep(publishDelayMs);
+            }
         }
         kafkaTemplate.flush();
         log.info("DEMO: produced {} messages to '{}'", messages.size(), sourceTopic);

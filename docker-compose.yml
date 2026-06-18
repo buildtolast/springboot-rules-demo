@@ -19,6 +19,8 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+      # Bound the broker JVM heap; OS page cache (off-heap, reclaimable) is left unrestricted.
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xmx768m -Xms512m}
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:${KAFKA_PORT:-9092} --list || exit 1"]
       interval: 10s
@@ -47,6 +49,8 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+      # Bound the broker JVM heap; OS page cache (off-heap, reclaimable) is left unrestricted.
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xmx768m -Xms512m}
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-1:9093 --list || exit 1"]
       interval: 10s
@@ -75,6 +79,8 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+      # Bound the broker JVM heap; OS page cache (off-heap, reclaimable) is left unrestricted.
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xmx768m -Xms512m}
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-2:9093 --list || exit 1"]
       interval: 10s
@@ -103,6 +109,8 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       CLUSTER_ID: "5L6g3nShT-eMCtK--X86sw"
+      # Bound the broker JVM heap; OS page cache (off-heap, reclaimable) is left unrestricted.
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xmx768m -Xms512m}
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka-3:9093 --list || exit 1"]
       interval: 10s
@@ -114,9 +122,13 @@ services:
   mongo:
     image: mongo:7
     container_name: springboot-rules-demo-mongo
-    command: ["mongod", "--port", "${MONGO_PORT:-27017}"]
+    command: ["mongod", "--port", "${MONGO_PORT:-27017}", "--wiredTigerCacheSizeGB", "${MONGO_WT_CACHE_GB:-1}"]
     ports:
       - "${MONGO_PORT:-27017}:${MONGO_PORT:-27017}"
+    deploy:
+      resources:
+        limits:
+          memory: ${MONGO_MEM_LIMIT:-2G}
     healthcheck:
       test: ["CMD", "mongosh", "--port", "${MONGO_PORT:-27017}", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -128,11 +140,15 @@ services:
   mongo-1:
     image: mongo:7
     container_name: mongo-1
-    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017", "--wiredTigerCacheSizeGB", "${MONGO_WT_CACHE_GB:-1}"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "${MONGO_PORT:-27017}:27017"
+    deploy:
+      resources:
+        limits:
+          memory: ${MONGO_MEM_LIMIT:-2G}
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27017", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -144,11 +160,15 @@ services:
   mongo-2:
     image: mongo:7
     container_name: mongo-2
-    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017", "--wiredTigerCacheSizeGB", "${MONGO_WT_CACHE_GB:-1}"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "${MONGO_PORT_2:-27018}:27017"
+    deploy:
+      resources:
+        limits:
+          memory: ${MONGO_MEM_LIMIT:-2G}
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27017", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -160,11 +180,15 @@ services:
   mongo-3:
     image: mongo:7
     container_name: mongo-3
-    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all", "--port", "27017", "--wiredTigerCacheSizeGB", "${MONGO_WT_CACHE_GB:-1}"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "${MONGO_PORT_3:-27019}:27017"
+    deploy:
+      resources:
+        limits:
+          memory: ${MONGO_MEM_LIMIT:-2G}
     healthcheck:
       test: ["CMD", "mongosh", "--port", "27017", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -188,7 +212,10 @@ services:
   app:
     build: .
     deploy:
-      replicas: 10
+      replicas: ${APP_REPLICAS:-10}
+      resources:
+        limits:
+          memory: ${APP_MEM_LIMIT:-1G}
     ports:
       - "${APP_PORT:-8081}"
     extra_hosts:
@@ -201,6 +228,8 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       SERVER_PORT: 8081
       APP_REPLICATION_FACTOR: ${APP_REPLICATION_FACTOR}
+      # Bound each JVM's heap so 10 replicas don't collectively exhaust the Docker VM.
+      JAVA_TOOL_OPTIONS: ${APP_JAVA_OPTS:--Xmx512m -Xms256m}
     depends_on:
       kafka:
         condition: service_healthy
