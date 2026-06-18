@@ -56,16 +56,19 @@ find_free_port() {
 # Parse command line arguments (before any teardown so --help exits cleanly)
 FORCE_REBUILD=false
 FOLLOW_LOGS=false
+CLUSTER_MODE=false
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -b|--build) FORCE_REBUILD=true ;;
         -l|--logs) FOLLOW_LOGS=true ;;
+        -c|--cluster) CLUSTER_MODE=true ;;
         -h|--help)
             echo "Usage: ./run.sh [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  -b, --build    Force a clean rebuild of Docker images (uses --no-cache)"
             echo "  -l, --logs     Follow logs after starting the stack"
+            echo "  -c, --cluster  Run Kafka and MongoDB in a 3-node cluster"
             echo "  -h, --help     Show this help message"
             echo ""
             echo "Environment Variables (Overrides):"
@@ -114,13 +117,20 @@ fi
 # nothing running. Tearing down first means only genuinely external services
 # survive to be detected and reused.
 echo "🛑 Stopping existing services..."
-$DOCKER_COMPOSE down --remove-orphans
+# Tear down across ALL profiles, not just the current run's mode. Profile-gated
+# services (the cluster kafka-1/2/3, mongo-1/2/3) are only matched by 'down' when
+# their profile is active; without this a previous cluster run would be left
+# holding its ports, shifting this run's auto-incremented ports and breaking the
+# Mongo replica set / container naming.
+COMPOSE_PROFILES="single,cluster" $DOCKER_COMPOSE down --remove-orphans
 
 # Resolve published host ports for every service we start. If the requested
 # (default or overridden) port is already in use, auto-increment to the next
 # free one so the user doesn't have to hunt for a free port manually.
-# UI always starts.
+# UI always starts. Seed the service list here so the per-service blocks below
+# can append to it (the cluster Kafka/Mongo nodes in particular).
 find_free_port "$UI_PORT" "UI"; export UI_PORT="$FREE_PORT"
+SERVICES_TO_START="ui"
 
 # Backend API (for UI proxy) — reuse an external backend only when BACKEND_URL is
 # explicitly set; otherwise start our own app on an auto-resolved free port.
@@ -135,8 +145,10 @@ if [ ! -z "$BACKEND_URL_OVERRIDE" ]; then
     fi
     echo "🌐 Using Backend API: $BACKEND_URL"
 else
+    # App port is dynamic in docker-compose for 10 replicas, 
+    # but we still assign a base port for the first one / for UI proxy reference.
     find_free_port "$APP_PORT" "API"; export APP_PORT="$FREE_PORT"
-    export BACKEND_URL="http://app:$APP_PORT"
+    export BACKEND_URL="http://app:8081"
     START_APP=true
 fi
 
@@ -146,9 +158,22 @@ if [ ! -z "$KAFKA_BOOTSTRAP_OVERRIDE" ]; then
     START_KAFKA=false
     echo "🌐 Using external Kafka: $KAFKA_BOOTSTRAP"
 else
-    find_free_port "$KAFKA_PORT" "Kafka"; export KAFKA_PORT="$FREE_PORT"
-    find_free_port "$KAFKA_CONTROLLER_PORT" "Kafka controller"; export KAFKA_CONTROLLER_PORT="$FREE_PORT"
-    export KAFKA_BOOTSTRAP="kafka:$KAFKA_PORT"
+    if [ "$CLUSTER_MODE" = true ]; then
+        # We use dynamic ports for the 3 nodes.
+        find_free_port "$KAFKA_PORT" "Kafka-1"; export KAFKA_PORT="$FREE_PORT"
+        # We also need free ports for the other 2 Kafka nodes
+        find_free_port 9094 "Kafka-2"; export KAFKA_PORT_2="$FREE_PORT"
+        find_free_port 9095 "Kafka-3"; export KAFKA_PORT_3="$FREE_PORT"
+        export KAFKA_BOOTSTRAP="host.docker.internal:$KAFKA_PORT,host.docker.internal:$KAFKA_PORT_2,host.docker.internal:$KAFKA_PORT_3"
+        # Since we use 3 containers, we'll tell the user we're starting a 3-node cluster
+        echo "🐳 Starting 3-node Kafka and MongoDB cluster using official images..."
+        SERVICES_TO_START="$SERVICES_TO_START kafka-1 kafka-2 kafka-3"
+    else
+        find_free_port "$KAFKA_PORT" "Kafka"; export KAFKA_PORT="$FREE_PORT"
+        find_free_port "$KAFKA_CONTROLLER_PORT" "Kafka controller"; export KAFKA_CONTROLLER_PORT="$FREE_PORT"
+        export KAFKA_BOOTSTRAP="host.docker.internal:$KAFKA_PORT"
+        SERVICES_TO_START="$SERVICES_TO_START kafka"
+    fi
     START_KAFKA=true
 fi
 
@@ -158,8 +183,17 @@ if [ ! -z "$MONGODB_URI_OVERRIDE" ]; then
     START_MONGO=false
     echo "🌐 Using external MongoDB: $MONGODB_URI"
 else
-    find_free_port "$MONGO_PORT" "MongoDB"; export MONGO_PORT="$FREE_PORT"
-    export MONGODB_URI="mongodb://mongo:$MONGO_PORT/ruleaudit"
+    if [ "$CLUSTER_MODE" = true ]; then
+        find_free_port "$MONGO_PORT" "MongoDB-1"; export MONGO_PORT="$FREE_PORT"
+        find_free_port 27018 "MongoDB-2"; export MONGO_PORT_2="$FREE_PORT"
+        find_free_port 27019 "MongoDB-3"; export MONGO_PORT_3="$FREE_PORT"
+        export MONGODB_URI="mongodb://host.docker.internal:$MONGO_PORT,host.docker.internal:$MONGO_PORT_2,host.docker.internal:$MONGO_PORT_3/ruleaudit?replicaSet=rs0"
+        SERVICES_TO_START="$SERVICES_TO_START mongo-1 mongo-2 mongo-3"
+    else
+        find_free_port "$MONGO_PORT" "MongoDB"; export MONGO_PORT="$FREE_PORT"
+        export MONGODB_URI="mongodb://host.docker.internal:$MONGO_PORT/ruleaudit"
+        SERVICES_TO_START="$SERVICES_TO_START mongo"
+    fi
     START_MONGO=true
 fi
 
@@ -170,7 +204,7 @@ if [ ! -z "$REDIS_HOST_OVERRIDE" ]; then
     echo "🌐 Using external Redis: $REDIS_HOST"
 else
     find_free_port "$REDIS_PORT" "Redis"; export REDIS_PORT="$FREE_PORT"
-    export REDIS_HOST="redis"
+    export REDIS_HOST="host.docker.internal"
     START_REDIS=true
 fi
 
@@ -186,13 +220,20 @@ echo "🍃 Mongo:        $MONGODB_URI"
 echo "🔴 Redis:        $REDIS_HOST"
 echo "----------------------------------------------------------"
 
-# Rebuild and run
-# We only start services that are not already running locally or overridden
-SERVICES_TO_START="ui"
+# Rebuild and run. SERVICES_TO_START was seeded with "ui" above and the Kafka/
+# Mongo blocks appended their (single- or cluster-mode) nodes; add app and redis.
 if [ "$START_APP" = true ]; then SERVICES_TO_START="$SERVICES_TO_START app"; fi
-if [ "$START_KAFKA" = true ]; then SERVICES_TO_START="$SERVICES_TO_START kafka"; fi
-if [ "$START_MONGO" = true ]; then SERVICES_TO_START="$SERVICES_TO_START mongo"; fi
 if [ "$START_REDIS" = true ]; then SERVICES_TO_START="$SERVICES_TO_START redis"; fi
+
+# Set Docker Compose profiles
+if [ "$CLUSTER_MODE" = true ]; then
+    COMPOSE_PROFILES="cluster"
+    export APP_REPLICATION_FACTOR=3
+else
+    COMPOSE_PROFILES="single"
+    export APP_REPLICATION_FACTOR=1
+fi
+export COMPOSE_PROFILES
 
 if [ "$FORCE_REBUILD" = true ]; then
     echo "🔄 Forcing a clean rebuild..."
@@ -202,6 +243,44 @@ else
     echo "🔍 Checking for changes and starting..."
     $DOCKER_COMPOSE up -d --build --remove-orphans $SERVICES_TO_START
 fi
+
+# Initialize MongoDB Replica Set if we started our own Mongo cluster
+if [ "$START_MONGO" = true ] && [ "$CLUSTER_MODE" = true ]; then
+    echo "🍃 Initializing MongoDB Replica Set..."
+    # Wait for mongo-1 to be healthy before attempting rs.initiate
+    echo "   Waiting for mongo-1 to be ready..."
+    MAX_RS_WAIT=30
+    RS_WAIT=0
+    while ! docker exec mongo-1 mongosh --quiet --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
+        sleep 2
+        RS_WAIT=$((RS_WAIT + 2))
+        if [ $RS_WAIT -ge $MAX_RS_WAIT ]; then
+            echo "   ⚠️  mongo-1 took too long to respond. Skipping RS initialization."
+            break
+        fi
+    done
+
+    if [ $RS_WAIT -lt $MAX_RS_WAIT ]; then
+        docker exec mongo-1 mongosh --quiet --eval '
+          try {
+            if (rs.status().ok) {
+              console.log("Replica set already initialized.");
+            }
+          } catch (e) {
+            rs.initiate({
+              _id: "rs0",
+              members: [
+                { _id: 0, host: "host.docker.internal:'$MONGO_PORT'" },
+                { _id: 1, host: "host.docker.internal:'$MONGO_PORT_2'" },
+                { _id: 2, host: "host.docker.internal:'$MONGO_PORT_3'" }
+              ]
+            });
+            console.log("Replica set initialized.");
+          }
+        ' || echo "⚠️  MongoDB RS initialization failed."
+    fi
+fi
+
 
 echo "----------------------------------------------------------"
 echo "⏳ Waiting for services to initialize..."
