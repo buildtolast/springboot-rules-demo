@@ -54,19 +54,23 @@ find_free_port() {
 }
 
 # Parse command line arguments (before any teardown so --help exits cleanly)
-FORCE_REBUILD=false
+# Clean (--no-cache) rebuild is the DEFAULT so source changes are always picked
+# up; pass -f/--fast for a quick cache-aware build when nothing heavy changed.
+FORCE_REBUILD=true
 FOLLOW_LOGS=false
 CLUSTER_MODE=false
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -b|--build) FORCE_REBUILD=true ;;
+        -f|--fast|--no-build) FORCE_REBUILD=false ;;
         -l|--logs) FOLLOW_LOGS=true ;;
         -c|--cluster) CLUSTER_MODE=true ;;
         -h|--help)
             echo "Usage: ./run.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  -b, --build    Force a clean rebuild of Docker images (uses --no-cache)"
+            echo "  -b, --build    Force a clean rebuild of Docker images (default; uses --no-cache)"
+            echo "  -f, --fast     Quick cache-aware build instead of the default clean rebuild"
             echo "  -l, --logs     Follow logs after starting the stack"
             echo "  -c, --cluster  Run Kafka and MongoDB in a 3-node cluster"
             echo "  -h, --help     Show this help message"
@@ -87,8 +91,8 @@ while [[ "$#" -gt 0 ]]; do
             echo "  BACKEND_URL      External Backend API URL (e.g., http://localhost:8081)"
             echo ""
             echo "Example:"
-            echo "  UI_PORT=9000 ./run.sh"
-            echo "  ./run.sh --build --logs"
+            echo "  UI_PORT=9000 ./run.sh        # clean rebuild (default)"
+            echo "  ./run.sh --fast --logs       # quick cached build, then follow logs"
             exit 0
             ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
